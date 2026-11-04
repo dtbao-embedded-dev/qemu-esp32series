@@ -1,0 +1,4 @@
+# The test uses the new i2c_master driver and the legacy driver one after
+# the other, so the link-time conflict check must be skipped.
+CONFIG_I2C_SKIP_LEGACY_CONFLICT_CHECK=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
