@@ -48,6 +48,7 @@
 #include "hw/ssi/esp32s3_spi.h"
 #include "hw/misc/esp32s3_cache.h"
 #include "hw/char/esp32s3_uart.h"
+#include "hw/i2c/esp32s3_i2c.h"
 #include "hw/misc/esp32s3_rng.h"
 
 #include "hw/nvram/esp32s3_efuse.h"
@@ -122,6 +123,7 @@ typedef struct Esp32s3SocState {
     XtensaCPU cpu[ESP32S3_CPU_COUNT];
     Esp32s3IntMatrixState intmatrix;
     ESP32S3UARTState uart[ESP32S3_UART_COUNT];
+    ESP32S3I2CState i2c[ESP32S3_I2C_COUNT];
     ESP32S3GPIOState gpio;
     Esp32s3RngState rng;
     Esp32S3TWAIState twai;
@@ -210,6 +212,9 @@ static void esp32s3_soc_reset(DeviceState *dev)
         device_cold_reset(DEVICE(&s->intmatrix));
         for (int i = 0; i < ESP32S3_UART_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->uart[i]));
+        }
+        for (int i = 0; i < ESP32S3_I2C_COUNT; ++i) {
+            device_cold_reset(DEVICE(&s->i2c[i]));
         }
     }
     if (s->requested_reset & ESP32S3_SOC_RESET_PROCPU) {
@@ -311,6 +316,16 @@ static void esp32s3_machine_init_sd(Esp32s3SocState* ss)
         SDBus* sd_bus = SD_BUS(qdev_get_child_bus(sdmmc, "sd-bus"));
         qdev_realize_and_unref(card, BUS(sd_bus), &error_fatal);
     }
+}
+
+static void esp32s3_machine_init_i2c(Esp32s3SocState *ss)
+{
+    /* The I2C bus is not reachable from sysbus-default, so slaves cannot be
+     * created with -device. Attach the default tmp105 sensor on I2C0, as the
+     * ESP32 machine does (see esp32_machine_init_i2c). */
+    DeviceState *i2c_master = DEVICE(&ss->i2c[0]);
+    I2CBus *i2c_bus = I2C_BUS(qdev_get_child_bus(i2c_master, "i2c"));
+    i2c_slave_create_simple(i2c_bus, "tmp105", 0x48);
 }
 
 struct Esp32s3MachineState {
@@ -425,6 +440,14 @@ static void esp32s3_soc_realize(DeviceState *dev, Error **errp)
                            qdev_get_gpio_in(intmatrix_dev, ETS_UART0_INTR_SOURCE + i));
     }
 
+    for (int i = 0; i < ESP32S3_I2C_COUNT; ++i) {
+        const hwaddr i2c_base[] = {DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE};
+        qdev_realize(DEVICE(&s->i2c[i]), &s->periph_bus, &error_fatal);
+        esp32s3_soc_add_periph_device(sys_mem, &s->i2c[i], i2c_base[i]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->i2c[i]), 0,
+                           qdev_get_gpio_in(intmatrix_dev, ETS_I2C_EXT0_INTR_SOURCE + i));
+    }
+
     qdev_realize(DEVICE(&s->sdmmc), &s->periph_bus, &error_fatal);
     esp32s3_soc_add_periph_device(sys_mem, &s->sdmmc, DR_REG_SDMMC_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
@@ -530,6 +553,11 @@ static void esp32s3_soc_init(Object *obj)
     for (int i = 0; i < ESP32S3_UART_COUNT; ++i) {
         snprintf(name, sizeof(name), "uart%d", i);
         object_initialize_child(obj, name, &s->uart[i], TYPE_ESP32S3_UART);
+    }
+
+    for (int i = 0; i < ESP32S3_I2C_COUNT; ++i) {
+        snprintf(name, sizeof(name), "i2c%d", i);
+        object_initialize_child(obj, name, &s->i2c[i], TYPE_ESP32S3_I2C);
     }
 
     object_property_add_alias(obj, "serial0", OBJECT(&s->uart[0]), "chardev");
@@ -872,8 +900,9 @@ static void esp32s3_machine_init(MachineState *machine)
     esp32s3_soc_add_unimp_device(sys_mem, "esp32s3.rmt", DR_REG_RMT_BASE, 0x1000);
     esp32s3_soc_add_unimp_device(sys_mem, "esp32s3.iomux", DR_REG_IO_MUX_BASE, 0x2000);
 
-    
+
     esp32s3_machine_init_sd(ss);
+    esp32s3_machine_init_i2c(ss);
 
     /* Need MMU initialized prior to ELF loading,
      * so that ELF gets loaded into virtual addresses

@@ -48,9 +48,19 @@ static void esp32_i2c_update_irq(Esp32I2CState * s)
     qemu_set_irq(s->irq, irq_state);
 }
 
+static bool esp32_i2c_is_cmd_reg(Esp32I2CState *s, hwaddr addr)
+{
+    Esp32I2CClass *klass = ESP32_I2C_GET_CLASS(s);
+    return addr >= A_I2C_CMD && addr < A_I2C_CMD + klass->cmd_count * 4;
+}
+
 static uint64_t esp32_i2c_read(void * opaque, hwaddr addr, unsigned int size)
 {
     Esp32I2CState * s = Esp32_I2C(opaque);
+
+    if (esp32_i2c_is_cmd_reg(s, addr)) {
+        return s->cmd_reg[(addr - A_I2C_CMD) / 4];
+    }
 
     switch(addr) {
     case A_I2C_CTR:
@@ -71,8 +81,6 @@ static uint64_t esp32_i2c_read(void * opaque, hwaddr addr, unsigned int size)
         return s->int_ena_reg;
     case A_I2C_INT_ST:
         return s->int_raw_reg & s->int_ena_reg;
-    case A_I2C_CMD ... (A_I2C_CMD + ESP32_I2C_CMD_COUNT * 4):
-        return s->cmd_reg[(addr - A_I2C_CMD) / 4];
     case A_I2C_TIMEOUT:
         return s->timeout_reg;
     case A_I2C_SDA_HOLD:
@@ -99,6 +107,11 @@ static uint64_t esp32_i2c_read(void * opaque, hwaddr addr, unsigned int size)
 static void esp32_i2c_write(void * opaque, hwaddr addr, uint64_t value, unsigned int size)
 {
     Esp32I2CState * s = Esp32_I2C(opaque);
+
+    if (esp32_i2c_is_cmd_reg(s, addr)) {
+        s->cmd_reg[(addr - A_I2C_CMD) / 4] = value;
+        return;
+    }
 
     switch(addr) {
     case A_I2C_CTR:
@@ -137,9 +150,6 @@ static void esp32_i2c_write(void * opaque, hwaddr addr, uint64_t value, unsigned
         s->int_ena_reg = value;
         esp32_i2c_update_irq(s);
         break;
-    case A_I2C_CMD ... (A_I2C_CMD + ESP32_I2C_CMD_COUNT * 4):
-        s->cmd_reg[(addr - A_I2C_CMD) / 4] = value;
-        break;
     case A_I2C_TIMEOUT:
         s->timeout_reg = value;
         break;
@@ -174,16 +184,17 @@ static void esp32_i2c_write(void * opaque, hwaddr addr, uint64_t value, unsigned
 
 static void esp32_i2c_do_transaction(Esp32I2CState * s)
 {
+    Esp32I2CClass *klass = ESP32_I2C_GET_CLASS(s);
     bool stop_or_end = false;
-    for (int i_cmd = 0; i_cmd < ESP32_I2C_CMD_COUNT && !stop_or_end; ++i_cmd) {
+    for (int i_cmd = 0; i_cmd < klass->cmd_count && !stop_or_end; ++i_cmd) {
         uint32_t cmd = s->cmd_reg[i_cmd];
         char opcode = FIELD_EX32(cmd, I2C_CMD, OPCODE);
-        switch (opcode) {
-            case I2C_OPCODE_RSTART:
+        switch (klass->opcode_map[(int) opcode]) {
+            case ESP32_I2C_OP_RSTART:
                 i2c_end_transfer(s->bus);
                 s->trans_ongoing = false;
                 break;
-            case I2C_OPCODE_WRITE: {
+            case ESP32_I2C_OP_WRITE: {
                 size_t length = FIELD_EX32(cmd, I2C_CMD, BYTE_NUM);
                 if (!s->trans_ongoing) {
                     s->trans_ongoing = true;
@@ -209,7 +220,7 @@ static void esp32_i2c_do_transaction(Esp32I2CState * s)
                 }
                 break;
             }
-            case I2C_OPCODE_READ: {
+            case ESP32_I2C_OP_READ: {
                 size_t length = FIELD_EX32(cmd, I2C_CMD, BYTE_NUM);
                 for (size_t nbytes = 0; nbytes < length; ++nbytes) {
                     if (fifo8_num_free(&s->rx_fifo) == 0) {
@@ -221,13 +232,13 @@ static void esp32_i2c_do_transaction(Esp32I2CState * s)
                 }
                 break;
             }
-            case I2C_OPCODE_STOP:
+            case ESP32_I2C_OP_STOP:
                 i2c_end_transfer(s->bus);
                 s->trans_ongoing = false;
                 s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, TRANS_COMPLETE, 1);
                 stop_or_end = true;
                 break;
-            case I2C_OPCODE_END:
+            case ESP32_I2C_OP_END:
                 s->int_raw_reg = FIELD_DP32(s->int_raw_reg, I2C_INT_RAW, END_DETECT, 1);
                 stop_or_end = true;
                 break;
@@ -240,18 +251,30 @@ static void esp32_i2c_do_transaction(Esp32I2CState * s)
     esp32_i2c_update_irq(s);
 }
 
+static uint64_t esp32_i2c_mmio_read(void *opaque, hwaddr addr, unsigned int size)
+{
+    return ESP32_I2C_GET_CLASS(opaque)->i2c_read(opaque, addr, size);
+}
+
+static void esp32_i2c_mmio_write(void *opaque, hwaddr addr, uint64_t value, unsigned int size)
+{
+    ESP32_I2C_GET_CLASS(opaque)->i2c_write(opaque, addr, value, size);
+}
+
 static const MemoryRegionOps esp32_i2c_ops = {
-    .read = esp32_i2c_read,
-    .write = esp32_i2c_write,
+    .read = esp32_i2c_mmio_read,
+    .write = esp32_i2c_mmio_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
 static void esp32_i2c_init(Object * obj)
 {
     Esp32I2CState *s = Esp32_I2C(obj);
+    Esp32I2CClass *klass = ESP32_I2C_GET_CLASS(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &esp32_i2c_ops, s, TYPE_ESP32_I2C, ESP32_I2C_MEM_SIZE);
+    memory_region_init_io(&s->iomem, obj, &esp32_i2c_ops, s, object_get_typename(obj),
+                          klass->mem_size);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
 
@@ -264,7 +287,19 @@ static void esp32_i2c_init(Object * obj)
 static void esp32_i2c_class_init(ObjectClass * klass, void * data)
 {
     ResettableClass *rc = RESETTABLE_CLASS(klass);
+    Esp32I2CClass *esp32 = ESP32_I2C_CLASS(klass);
+
     rc->phases.hold = esp32_i2c_reset_hold;
+
+    esp32->cmd_count = ESP32_I2C_CMD_COUNT;
+    esp32->mem_size = ESP32_I2C_MEM_SIZE;
+    esp32->opcode_map[I2C_OPCODE_RSTART] = ESP32_I2C_OP_RSTART;
+    esp32->opcode_map[I2C_OPCODE_WRITE] = ESP32_I2C_OP_WRITE;
+    esp32->opcode_map[I2C_OPCODE_READ] = ESP32_I2C_OP_READ;
+    esp32->opcode_map[I2C_OPCODE_STOP] = ESP32_I2C_OP_STOP;
+    esp32->opcode_map[I2C_OPCODE_END] = ESP32_I2C_OP_END;
+    esp32->i2c_read = esp32_i2c_read;
+    esp32->i2c_write = esp32_i2c_write;
 }
 
 static const TypeInfo esp32_i2c_type_info = {
@@ -273,6 +308,7 @@ static const TypeInfo esp32_i2c_type_info = {
     .instance_size = sizeof(Esp32I2CState),
     .instance_init = esp32_i2c_init,
     .class_init = esp32_i2c_class_init,
+    .class_size = sizeof(Esp32I2CClass),
 };
 
 static void esp32_i2c_register_types(void)

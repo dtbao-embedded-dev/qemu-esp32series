@@ -1,0 +1,95 @@
+# qemu-esp32series
+
+Fork of [espressif/qemu](https://github.com/espressif/qemu) (GPL-2.0),
+imported from tag `esp-develop-9.2.2-20260417`. Remotes: `origin` is
+`dtbao-embedded-dev/qemu-esp32series`, `upstream` is `espressif/qemu`.
+Goal of the fork: extend the ESP32-S3 machine with peripherals upstream
+does not model yet.
+
+## Active work
+
+- [docs/plan-esp32s3-i2c-ledc-wifi.md](docs/plan-esp32s3-i2c-ledc-wifi.md):
+  plan and progress for I2C0/1, LEDC and WiFi on ESP32-S3. Update its
+  Progress table with each step; delete the file (and this link) when all
+  steps are done.
+
+## Layout (ESP32 parts)
+
+| Machine | Board / SoC | Interrupts | Clock |
+|---|---|---|---|
+| `-M esp32` | `hw/xtensa/esp32.c` | `hw/xtensa/esp32_intc.c` | in `hw/misc/` |
+| `-M esp32s3` | `hw/xtensa/esp32s3.c` | `hw/xtensa/esp32s3_intc.c` | `hw/xtensa/esp32s3_clk.c` |
+| `-M esp32c3` | `hw/riscv/esp32c3.c` | `hw/riscv/esp32c3_intmatrix.c` | `hw/riscv/esp32c3_clk.c` |
+
+- S3 register map: `include/hw/misc/esp32s3_reg.h`.
+  S3 interrupt sources: `include/hw/xtensa/esp32s3_intc.h`.
+- Peripheral models: `hw/misc/esp32*`, `hw/i2c/esp32_i2c.c`,
+  `hw/ssi/`, `hw/char/`, `hw/net/opencores_eth.c`.
+- Kconfig: `hw/xtensa/Kconfig` (`XTENSA_ESP32`, `XTENSA_ESP32S3`).
+  Sources are added per machine in each directory's `meson.build`.
+
+## Conventions on the S3 machine
+
+- Peripherals with no model fall into the catch-all `esp32s3.iomem`
+  region (0x60000000, size 0xd1000): reads return 0, writes are ignored.
+  New devices are mapped above it with
+  `memory_region_add_subregion_overlap(sys_mem, BASE, mr, 0)`.
+- Device wiring pattern in `esp32s3.c`: `object_initialize_child` in init,
+  `sysbus_realize`, map MMIO, `sysbus_connect_irq` to
+  `qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_*_INTR_SOURCE)`, and add
+  the device to `esp32s3_soc_reset`.
+- `open_eth` uses `ETS_ETH_MAC_INTR_SOURCE`, which aliases the WiFi MAC
+  source (0).
+- Original-ESP32 models are the usual porting base, but check the S3
+  register layout in ESP-IDF (`components/soc/esp32s3`,
+  `components/hal/esp32s3`) first; offsets and opcodes often differ.
+
+## Build and run
+
+Verified on this Windows machine with MSYS2 MINGW64, out of tree in
+`build-win/` (ignored locally through `.git/info/exclude`):
+
+```sh
+mkdir build-win && cd build-win
+../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-pixman \
+  --enable-slirp --enable-stack-protector --static \
+  --without-default-features --extra-cflags=-Werror
+ninja qemu-system-xtensa.exe
+```
+
+- The feature flags match `.github/workflows/scripts/configure-win.sh`.
+  Slirp is mandatory: `meson.build` wraps it in `declare_dependency`, so
+  `CONFIG_SLIRP` is set even when slirp is disabled, and the fork links it
+  statically, which needs `--static`. After configure, apply the same
+  `sed` fix for `libintl`/`libiconv` that the CI script applies to
+  `build.ninja`.
+- Without Windows Developer Mode, the meson postconf step
+  `scripts/symlink-install-tree.py` fails because it cannot create
+  symlinks. It ignores `EEXIST`, so pre-create the `qemu-bundle/` entries
+  listed by `meson introspect --installed` as plain files and rerun
+  configure. An out-of-tree build keeps `qemu-bundle/` between runs.
+
+Run an ESP-IDF image:
+
+```sh
+build-win/qemu-system-xtensa.exe -M esp32s3 -display none -serial stdio \
+  -monitor none -no-reboot -L pc-bios -drive file=flash.bin,if=mtd,format=raw
+```
+
+Test firmware: `tests/esp-idf/i2c_tmp105` (both `esp32` and `esp32s3`),
+passes with ESP-IDF 6.0.2 and 6.1. Merge the image with
+`esptool --chip <target> merge_bin --fill-flash-size 4MB -o flash.bin @flash_args`
+from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
+
+ESP-IDF v6.1 is the release that pins this fork's QEMU
+(`esp-develop-9.2.2-20260417` in `tools/tools.json`). Local installs live
+under `C:\Espressif\frameworks` (v4.4.6 to v6.0.2) and `E:\.espressif`
+(v5.3.5, v5.5.4, v6.0.1, v6.1); the tools in `E:\.espressif` cover 6.0.2
+and 6.1. `export.ps1` fails on the missing pinned openocd, so set
+`IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_PYTHON_ENV_PATH` and `PATH` by hand.
+
+## Rules
+
+- Files, code comments and commit messages are in English.
+- Keep upstream code style (QEMU `scripts/checkpatch.pl`).
+- Changes to shared ESP32 models must not change the `-M esp32` behaviour.

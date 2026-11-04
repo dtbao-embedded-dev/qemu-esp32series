@@ -8,11 +8,26 @@
 
 #define TYPE_ESP32_I2C "esp32.i2c"
 #define Esp32_I2C(obj) OBJECT_CHECK(Esp32I2CState, (obj), TYPE_ESP32_I2C)
+#define ESP32_I2C_GET_CLASS(obj) OBJECT_GET_CLASS(Esp32I2CClass, obj, TYPE_ESP32_I2C)
+#define ESP32_I2C_CLASS(klass) OBJECT_CLASS_CHECK(Esp32I2CClass, klass, TYPE_ESP32_I2C)
 
 
 #define ESP32_I2C_MEM_SIZE 0x100
 #define ESP32_I2C_FIFO_LENGTH 32
+/* Size of the command register array; subclasses may use fewer commands */
 #define ESP32_I2C_CMD_COUNT 16
+/* The OPCODE field of a command register is 3 bits wide */
+#define ESP32_I2C_OPCODE_COUNT 8
+
+/* Controller-independent command operations, decoded through opcode_map */
+typedef enum {
+    ESP32_I2C_OP_INVALID = 0,
+    ESP32_I2C_OP_RSTART,
+    ESP32_I2C_OP_WRITE,
+    ESP32_I2C_OP_READ,
+    ESP32_I2C_OP_STOP,
+    ESP32_I2C_OP_END,
+} Esp32I2COp;
 
 
 typedef struct Esp32I2CState {
@@ -39,6 +54,21 @@ typedef struct Esp32I2CState {
     uint32_t stop_setup_reg;
     uint32_t cmd_reg[ESP32_I2C_CMD_COUNT];
 } Esp32I2CState;
+
+typedef struct Esp32I2CClass {
+    SysBusDeviceClass parent_class;
+
+    /* Number of command registers, at most ESP32_I2C_CMD_COUNT */
+    uint32_t cmd_count;
+    /* Size of the MMIO region */
+    uint64_t mem_size;
+    /* Hardware OPCODE value to operation, ESP32_I2C_OP_INVALID if unused */
+    Esp32I2COp opcode_map[ESP32_I2C_OPCODE_COUNT];
+
+    /* Register accessors, overridable by subclasses */
+    uint64_t (*i2c_read)(void *opaque, hwaddr addr, unsigned int size);
+    void (*i2c_write)(void *opaque, hwaddr addr, uint64_t value, unsigned int size);
+} Esp32I2CClass;
 
 
 REG32(I2C_CTR, 0x04);
@@ -97,7 +127,7 @@ REG32(I2C_CMD, 0x58);
     FIELD(I2C_CMD, DONE, 31, 1);
 /* 15 more command registers omitted */
 
-/* I2C_CMD.OPCODE values */
+/* I2C_CMD.OPCODE values on the ESP32 */
 typedef enum {
     I2C_OPCODE_RSTART = 0,
     I2C_OPCODE_WRITE  = 1,
