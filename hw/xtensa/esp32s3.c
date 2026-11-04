@@ -49,6 +49,7 @@
 #include "hw/misc/esp32s3_cache.h"
 #include "hw/char/esp32s3_uart.h"
 #include "hw/i2c/esp32s3_i2c.h"
+#include "hw/misc/esp32s3_ledc.h"
 #include "hw/misc/esp32s3_rng.h"
 
 #include "hw/nvram/esp32s3_efuse.h"
@@ -124,6 +125,7 @@ typedef struct Esp32s3SocState {
     Esp32s3IntMatrixState intmatrix;
     ESP32S3UARTState uart[ESP32S3_UART_COUNT];
     ESP32S3I2CState i2c[ESP32S3_I2C_COUNT];
+    ESP32S3LEDCState ledc;
     ESP32S3GPIOState gpio;
     Esp32s3RngState rng;
     Esp32S3TWAIState twai;
@@ -216,6 +218,7 @@ static void esp32s3_soc_reset(DeviceState *dev)
         for (int i = 0; i < ESP32S3_I2C_COUNT; ++i) {
             device_cold_reset(DEVICE(&s->i2c[i]));
         }
+        device_cold_reset(DEVICE(&s->ledc));
     }
     if (s->requested_reset & ESP32S3_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -448,6 +451,11 @@ static void esp32s3_soc_realize(DeviceState *dev, Error **errp)
                            qdev_get_gpio_in(intmatrix_dev, ETS_I2C_EXT0_INTR_SOURCE + i));
     }
 
+    qdev_realize(DEVICE(&s->ledc), &s->periph_bus, &error_fatal);
+    esp32s3_soc_add_periph_device(sys_mem, &s->ledc, DR_REG_LEDC_BASE);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->ledc), 0,
+                       qdev_get_gpio_in(intmatrix_dev, ETS_LEDC_INTR_SOURCE));
+
     qdev_realize(DEVICE(&s->sdmmc), &s->periph_bus, &error_fatal);
     esp32s3_soc_add_periph_device(sys_mem, &s->sdmmc, DR_REG_SDMMC_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
@@ -559,6 +567,8 @@ static void esp32s3_soc_init(Object *obj)
         snprintf(name, sizeof(name), "i2c%d", i);
         object_initialize_child(obj, name, &s->i2c[i], TYPE_ESP32S3_I2C);
     }
+
+    object_initialize_child(obj, "ledc", &s->ledc, TYPE_ESP32S3_LEDC);
 
     object_property_add_alias(obj, "serial0", OBJECT(&s->uart[0]), "chardev");
     object_property_add_alias(obj, "serial1", OBJECT(&s->uart[1]), "chardev");
