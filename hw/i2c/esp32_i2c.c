@@ -273,7 +273,8 @@ static void esp32_i2c_init(Object * obj)
     Esp32I2CClass *klass = ESP32_I2C_GET_CLASS(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &esp32_i2c_ops, s, TYPE_ESP32_I2C, klass->mem_size);
+    memory_region_init_io(&s->iomem, obj, &esp32_i2c_ops, s, object_get_typename(obj),
+                          klass->mem_size);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
 
