@@ -77,11 +77,16 @@ build-win/qemu-system-xtensa.exe -M esp32s3 -display none -serial stdio \
 ```
 
 Test firmware: `tests/esp-idf/i2c_tmp105` (both `esp32` and `esp32s3`),
-built with ESP-IDF 6.0.2. Merge the image with
+passes with ESP-IDF 6.0.2 and 6.1. Merge the image with
 `esptool --chip <target> merge_bin --fill-flash-size 4MB -o flash.bin @flash_args`
 from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
-Local ESP-IDF installs live under `C:\Espressif\frameworks`; only v6.0.2
-has its Python environment and toolchain installed (`E:\.espressif`).
+
+ESP-IDF v6.1 is the release that pins this fork's QEMU
+(`esp-develop-9.2.2-20260417` in `tools/tools.json`). Local installs live
+under `C:\Espressif\frameworks` (v4.4.6 to v6.0.2) and `E:\.espressif`
+(v5.3.5, v5.5.4, v6.0.1, v6.1); the tools in `E:\.espressif` cover 6.0.2
+and 6.1. `export.ps1` fails on the missing pinned openocd, so set
+`IDF_PATH`, `IDF_TOOLS_PATH`, `IDF_PYTHON_ENV_PATH` and `PATH` by hand.
 
 ## Rules
 

@@ -16,7 +16,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | I2  | Add `esp32s3.i2c` subtype with S3-only registers              | done   | `hw/i2c/esp32s3_i2c.c` |
 | I3  | Instantiate I2C0/I2C1 in `esp32s3.c` (map, IRQ, reset)        | done   | `info mtree`: 0x60013000, 0x60027000 |
 | I4  | Attach default slave `tmp105@0x48` on I2C0                    | done   |               |
-| I5  | Verify with IDF test apps + ESP32 regression                  | done   | `i2c_tmp105` PASS on esp32s3 (IDF 6.0.2); IDF 5.5.3 not run |
+| I5  | Verify with IDF test apps + ESP32 regression                  | done   | `i2c_tmp105` PASS on esp32s3 (IDF 6.0.2, 6.1); 5.5.3 not run |
 | L1  | New model `hw/misc/esp32s3_ledc.c`                            | todo   |               |
 | L2  | Instant fade + `DUTY_CHNG_END` interrupt                      | todo   |               |
 | L3  | Wire LEDC into `esp32s3.c`, Kconfig `select LED`, meson       | todo   |               |
@@ -38,13 +38,17 @@ Append one line per working session: date, step IDs touched, outcome.
   I2C1 probe (NOT_FOUND), a 13-command legacy transaction and the
   register readback/self-clear checks. `-M esp32` output is unchanged.
   Not run: IDF 5.5.3 (Python env and esp-14.2.0 toolchain missing).
+- 2026-11-04: I5 rerun with ESP-IDF v6.1 (pins this fork's QEMU,
+  esp-develop-9.2.2-20260417): `i2c_tmp105` PASS on `-M esp32` and
+  `-M esp32s3`, same output as with 6.0.2.
 
 ### Open decisions
 
 1. WiFi direction: A, B, C, or B/C plus the A spike (recommended).
 2. Extra I2C slaves besides `tmp105` (EEPROM, OLED, a specific sensor).
-3. Reference ESP-IDF version for testing: 5.5.3 or 6.0.2. Matters most for
-   WiFi option A because the closed blobs change per release.
+3. Reference ESP-IDF version for testing: 6.1 (pins this QEMU) or 6.0.2.
+   Matters most for WiFi option A because the closed blobs change per
+   release.
 
 ## Current state
 
