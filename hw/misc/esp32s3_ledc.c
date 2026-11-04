@@ -9,6 +9,12 @@
  * to DUTY_R and the channel LED intensity is set to duty / 2^DUTY_RES of
  * the timer selected by TIMER_SEL. PARA_UP and DUTY_START self-clear.
  *
+ * A fade (DUTY_NUM steps of DUTY_SCALE, up if DUTY_INC) completes at once:
+ * DUTY_R gets the final duty and DUTY_CHNG_END_CHn is raised. The ESP-IDF
+ * driver reads DUTY_R in its interrupt handler and starts another fade
+ * until the target is reached, so the final duty must be exact. Plain duty
+ * updates are fades of zero scale and raise the interrupt too.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 or
  * (at your option) any later version.
@@ -34,16 +40,32 @@ static void esp32s3_ledc_update_led(ESP32S3LEDCState *s, unsigned ch)
     led_set_intensity(&s->led[ch], percent);
 }
 
-/* PARA_UP was set on channel ch: apply a pending duty update */
+static void esp32s3_ledc_update_irq(ESP32S3LEDCState *s)
+{
+    qemu_set_irq(s->irq, (s->int_raw & s->int_ena) != 0);
+}
+
+/* PARA_UP was set on channel ch: apply a pending duty update or fade */
 static void esp32s3_ledc_update_channel(ESP32S3LEDCState *s, unsigned ch)
 {
-    if (!FIELD_EX32(s->ch_conf1[ch], ESP32S3_LEDC_CH_CONF1, DUTY_START)) {
+    uint32_t conf1 = s->ch_conf1[ch];
+    int64_t step, duty;
+
+    if (!FIELD_EX32(conf1, ESP32S3_LEDC_CH_CONF1, DUTY_START)) {
         return;
     }
-    s->ch_conf1[ch] = FIELD_DP32(s->ch_conf1[ch], ESP32S3_LEDC_CH_CONF1,
-                                 DUTY_START, 0);
-    s->ch_duty_r[ch] = s->ch_duty[ch];
+    s->ch_conf1[ch] = FIELD_DP32(conf1, ESP32S3_LEDC_CH_CONF1, DUTY_START, 0);
+
+    step = (int64_t)FIELD_EX32(conf1, ESP32S3_LEDC_CH_CONF1, DUTY_SCALE) *
+           FIELD_EX32(conf1, ESP32S3_LEDC_CH_CONF1, DUTY_NUM);
+    step <<= ESP32S3_LEDC_DUTY_FRAC_BITS;
+    duty = s->ch_duty[ch];
+    duty += FIELD_EX32(conf1, ESP32S3_LEDC_CH_CONF1, DUTY_INC) ? step : -step;
+    s->ch_duty_r[ch] = MIN(MAX(duty, 0), ESP32S3_LEDC_CH_DUTY_MASK);
     esp32s3_ledc_update_led(s, ch);
+
+    s->int_raw |= 1u << (R_ESP32S3_LEDC_INT_RAW_DUTY_CHNG_END_CH0_SHIFT + ch);
+    esp32s3_ledc_update_irq(s);
 }
 
 static uint64_t esp32s3_ledc_read(void *opaque, hwaddr addr, unsigned int size)
@@ -81,6 +103,10 @@ static uint64_t esp32s3_ledc_read(void *opaque, hwaddr addr, unsigned int size)
     }
 
     switch (addr) {
+    case A_ESP32S3_LEDC_INT_RAW:
+        return s->int_raw;
+    case A_ESP32S3_LEDC_INT_ST:
+        return s->int_raw & s->int_ena;
     case A_ESP32S3_LEDC_INT_ENA:
         return s->int_ena;
     case A_ESP32S3_LEDC_CONF:
@@ -140,6 +166,11 @@ static void esp32s3_ledc_write(void *opaque, hwaddr addr,
     switch (addr) {
     case A_ESP32S3_LEDC_INT_ENA:
         s->int_ena = val & ESP32S3_LEDC_INT_MASK;
+        esp32s3_ledc_update_irq(s);
+        break;
+    case A_ESP32S3_LEDC_INT_CLR:
+        s->int_raw &= ~val;
+        esp32s3_ledc_update_irq(s);
         break;
     case A_ESP32S3_LEDC_CONF:
         s->conf = val & ESP32S3_LEDC_CONF_MASK;
@@ -165,6 +196,7 @@ static void esp32s3_ledc_reset_hold(Object *obj, ResetType type)
     memset(s->ch_conf1, 0, sizeof(s->ch_conf1));
     memset(s->ch_duty_r, 0, sizeof(s->ch_duty_r));
     memset(s->timer_conf, 0, sizeof(s->timer_conf));
+    s->int_raw = 0;
     s->int_ena = 0;
     s->conf = 0;
     qemu_irq_lower(s->irq);
