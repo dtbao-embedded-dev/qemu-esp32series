@@ -18,9 +18,9 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | I4  | Attach default slave `tmp105@0x48` on I2C0                    | done   |               |
 | I5  | Verify with IDF test apps + ESP32 regression                  | done   | `i2c_tmp105` PASS on esp32s3 (IDF 6.0.2, 6.1); 5.5.3 not run |
 | L1  | New model `hw/misc/esp32s3_ledc.c`                            | done   | duty, `DUTY_R`, LEDs; `ledc_s3` test |
-| L2  | Instant fade + `DUTY_CHNG_END` interrupt                      | todo   |               |
+| L2  | Instant fade + `DUTY_CHNG_END` interrupt                      | done   | callback, `WAIT_DONE`, multi-round step fade |
 | L3  | Wire LEDC into `esp32s3.c`, Kconfig `select LED`, meson       | done   | `info mtree`: 0x60019000 |
-| L4  | Verify with `ledc_basic` / `ledc_fade`                        | todo   |               |
+| L4  | Verify with `ledc_basic` / `ledc_fade`                        | done   | IDF v6.1 examples run on `-M esp32s3` |
 | W0  | Decide WiFi direction (see Phase 3)                           | todo   |               |
 | W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | todo   |               |
 | W2  | Spike (1-2 days): map lcgamboa `esp32c3_wifi` onto S3         | todo   |               |
@@ -46,6 +46,11 @@ Append one line per working session: date, step IDs touched, outcome.
   256 read back, trace shows 50% and 25%, register readback and
   self-clear OK, `ledc_get_freq` 5000. `i2c_tmp105` still passes on both
   machines. The DUTY register has 4 fractional bits, not 8.
+- 2026-11-04: L2, L4 done. Fades complete at once and raise
+  `DUTY_CHNG_END`; `ledc_s3` passes a callback fade, a `WAIT_DONE` fade
+  and a step fade the driver reloads twice (8191 -> 1030 -> 1002 -> 1000).
+  IDF v6.1 `ledc_basic` traces 50%; `ledc_fade` loops 30 times in 60 s.
+  `i2c_tmp105` still passes on both machines.
 
 ### Open decisions
 

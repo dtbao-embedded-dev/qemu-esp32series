@@ -80,6 +80,9 @@ Test firmware: `tests/esp-idf/i2c_tmp105` (both `esp32` and `esp32s3`),
 passes with ESP-IDF 6.0.2 and 6.1. Merge the image with
 `esptool --chip <target> merge_bin --fill-flash-size 4MB -o flash.bin @flash_args`
 from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
+`tests/esp-idf/ledc_s3` (`esp32s3` only, the ESP32 LEDC model has no fade
+or `DUTY_R`) prints `LEDC_TEST RESULT PASS`; add
+`-trace led_set_intensity` to see the LEDC channel outputs.
 
 ESP-IDF v6.1 is the release that pins this fork's QEMU
 (`esp-develop-9.2.2-20260417` in `tools/tools.json`). Local installs live
