@@ -46,17 +46,42 @@ does not model yet.
 
 ## Build and run
 
-Not yet verified in this checkout (no `build/` directory exists). Expected:
+Verified on this Windows machine with MSYS2 MINGW64, out of tree in
+`build-win/` (ignored locally through `.git/info/exclude`):
 
 ```sh
-./configure --target-list=xtensa-softmmu,riscv32-softmmu
-ninja -C build
-build/qemu-system-xtensa -M esp32s3 -nographic \
-  -drive file=flash.bin,if=mtd,format=raw
+mkdir build-win && cd build-win
+../configure --target-list=xtensa-softmmu --enable-gcrypt --enable-pixman \
+  --enable-slirp --enable-stack-protector --static \
+  --without-default-features --extra-cflags=-Werror
+ninja qemu-system-xtensa.exe
 ```
 
-ESP-IDF test firmware: local installs under `C:\Espressif\frameworks`
-(v4.4.6, v5.1.6, v5.3.3, v5.5.3, v6.0.2).
+- The feature flags match `.github/workflows/scripts/configure-win.sh`.
+  Slirp is mandatory: `meson.build` wraps it in `declare_dependency`, so
+  `CONFIG_SLIRP` is set even when slirp is disabled, and the fork links it
+  statically, which needs `--static`. After configure, apply the same
+  `sed` fix for `libintl`/`libiconv` that the CI script applies to
+  `build.ninja`.
+- Without Windows Developer Mode, the meson postconf step
+  `scripts/symlink-install-tree.py` fails because it cannot create
+  symlinks. It ignores `EEXIST`, so pre-create the `qemu-bundle/` entries
+  listed by `meson introspect --installed` as plain files and rerun
+  configure. An out-of-tree build keeps `qemu-bundle/` between runs.
+
+Run an ESP-IDF image:
+
+```sh
+build-win/qemu-system-xtensa.exe -M esp32s3 -display none -serial stdio \
+  -monitor none -no-reboot -L pc-bios -drive file=flash.bin,if=mtd,format=raw
+```
+
+Test firmware: `tests/esp-idf/i2c_tmp105` (both `esp32` and `esp32s3`),
+built with ESP-IDF 6.0.2. Merge the image with
+`esptool --chip <target> merge_bin --fill-flash-size 4MB -o flash.bin @flash_args`
+from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
+Local ESP-IDF installs live under `C:\Espressif\frameworks`; only v6.0.2
+has its Python environment and toolchain installed (`E:\.espressif`).
 
 ## Rules
 

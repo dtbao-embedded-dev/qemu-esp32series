@@ -12,7 +12,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 
 | ID  | Step                                                          | Status | Commit / note |
 |-----|---------------------------------------------------------------|--------|---------------|
-| I1  | Parametrize `esp32_i2c.c` (opcode map, cmd count, MMIO size)  | todo   |               |
+| I1  | Parametrize `esp32_i2c.c` (opcode map, cmd count, MMIO size)  | done   | `-M esp32` test output identical before/after |
 | I2  | Add `esp32s3.i2c` subtype with S3-only registers              | todo   |               |
 | I3  | Instantiate I2C0/I2C1 in `esp32s3.c` (map, IRQ, reset)        | todo   |               |
 | I4  | Attach default slave `tmp105@0x48` on I2C0                    | todo   |               |
@@ -31,6 +31,9 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 Append one line per working session: date, step IDs touched, outcome.
 
 - 2026-11-04: plan written. No code changed yet.
+- 2026-11-04: I1 done. Added `tests/esp-idf/i2c_tmp105`, built with
+  ESP-IDF 6.0.2 because 5.5.3 is not fully installed here. Baseline on
+  `-M esp32` passes; `-M esp32s3` fails (no I2C yet).
 
 ### Open decisions
 
