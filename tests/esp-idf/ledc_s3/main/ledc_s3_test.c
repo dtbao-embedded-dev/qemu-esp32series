@@ -16,9 +16,11 @@
 #include <stdlib.h>
 
 #include "driver/ledc.h"
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #define TEST_FREQ_HZ        5000
@@ -26,6 +28,10 @@
 #define CH1_GPIO            5
 #define CH0_DUTY            4096    /* 50% of 13 bits */
 #define CH1_DUTY            256     /* 25% of 10 bits */
+#define FADE_TIME_MS        200
+#define FADE_TIMEOUT_MS     1000
+
+static SemaphoreHandle_t s_fade_done;
 
 static bool s_pass = true;
 
@@ -78,6 +84,95 @@ static void test_duty(ledc_channel_t ch, uint32_t duty)
     printf("LEDC_TEST ch%d duty=%" PRIu32 " %s\n", (int) ch, got,
            ok ? "OK" : esp_err_to_name(err == ESP_OK ? ESP_FAIL : err));
     check(ok);
+}
+
+static bool IRAM_ATTR fade_end_cb(const ledc_cb_param_t *param, void *arg)
+{
+    BaseType_t woken = pdFALSE;
+
+    if (param->event == LEDC_FADE_END_EVT) {
+        xSemaphoreGiveFromISR(s_fade_done, &woken);
+    }
+    return woken == pdTRUE;
+}
+
+static bool fade_report(const char *name, esp_err_t err, bool done,
+                        uint32_t target)
+{
+    uint32_t got = ledc_get_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    bool ok = (err == ESP_OK) && done && got == target;
+
+    printf("LEDC_TEST fade %s duty=%" PRIu32 " %s\n", name, got,
+           ok ? "OK" : (err != ESP_OK ? esp_err_to_name(err) :
+                        (done ? "WRONG_DUTY" : "TIMEOUT")));
+    check(ok);
+    return ok;
+}
+
+/*
+ * Fades on CH0 (13 bits). Each one must end with the fade end callback,
+ * which the driver calls from the DUTY_CHNG_END interrupt. A missing
+ * interrupt makes the first fade time out; the driver then still thinks
+ * a fade is running, so the remaining fades are skipped instead of hanging.
+ */
+static void test_fade(void)
+{
+    ledc_cbs_t cbs = { .fade_cb = fade_end_cb };
+    esp_err_t err;
+
+    s_fade_done = xSemaphoreCreateBinary();
+    err = ledc_fade_func_install(0);
+    if (err == ESP_OK) {
+        err = ledc_cb_register(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, &cbs, NULL);
+    }
+    if (err != ESP_OK) {
+        printf("LEDC_TEST fade install %s\n", esp_err_to_name(err));
+        check(false);
+        return;
+    }
+
+    /* Time-based fade up, no wait: completion comes from the callback */
+    err = ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 8191,
+                                  FADE_TIME_MS);
+    if (err == ESP_OK) {
+        err = ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0,
+                              LEDC_FADE_NO_WAIT);
+    }
+    bool done = (err == ESP_OK) &&
+                xSemaphoreTake(s_fade_done, pdMS_TO_TICKS(FADE_TIMEOUT_MS));
+    if (!fade_report("time up", err, done, 8191)) {
+        return;
+    }
+
+    /* Time-based fade down, blocking until the driver sees the fade end */
+    err = ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0,
+                                  FADE_TIME_MS);
+    if (err == ESP_OK) {
+        err = ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0,
+                              LEDC_FADE_WAIT_DONE);
+    }
+    done = (err == ESP_OK) &&
+           xSemaphoreTake(s_fade_done, pdMS_TO_TICKS(FADE_TIMEOUT_MS));
+    if (!fade_report("wait down", err, done, 0)) {
+        return;
+    }
+
+    /*
+     * Step fade 8191 -> 1000 by 7: 1027 steps, more than the 1023 one
+     * hardware fade can do, plus a remainder of 2, so the driver ISR has
+     * to reload the fade twice before it reaches the target.
+     */
+    err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 8191);
+    if (err == ESP_OK) {
+        err = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    }
+    if (err == ESP_OK) {
+        err = ledc_set_fade_step_and_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0,
+                                           1000, 7, 1, LEDC_FADE_NO_WAIT);
+    }
+    done = (err == ESP_OK) &&
+           xSemaphoreTake(s_fade_done, pdMS_TO_TICKS(FADE_TIMEOUT_MS));
+    fade_report("step down", err, done, 1000);
 }
 
 static void test_freq(void)
@@ -182,6 +277,7 @@ void app_main(void)
     if (err == ESP_OK) {
         test_duty(LEDC_CHANNEL_0, CH0_DUTY);
         test_duty(LEDC_CHANNEL_1, CH1_DUTY);
+        test_fade();
     }
     test_registers();
     if (err == ESP_OK) {
