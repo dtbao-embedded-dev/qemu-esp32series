@@ -17,9 +17,9 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | I3  | Instantiate I2C0/I2C1 in `esp32s3.c` (map, IRQ, reset)        | done   | `info mtree`: 0x60013000, 0x60027000 |
 | I4  | Attach default slave `tmp105@0x48` on I2C0                    | done   |               |
 | I5  | Verify with IDF test apps + ESP32 regression                  | done   | `i2c_tmp105` PASS on esp32s3 (IDF 6.0.2, 6.1); 5.5.3 not run |
-| L1  | New model `hw/misc/esp32s3_ledc.c`                            | todo   |               |
+| L1  | New model `hw/misc/esp32s3_ledc.c`                            | done   | duty, `DUTY_R`, LEDs; `ledc_s3` test |
 | L2  | Instant fade + `DUTY_CHNG_END` interrupt                      | todo   |               |
-| L3  | Wire LEDC into `esp32s3.c`, Kconfig `select LED`, meson       | todo   |               |
+| L3  | Wire LEDC into `esp32s3.c`, Kconfig `select LED`, meson       | done   | `info mtree`: 0x60019000 |
 | L4  | Verify with `ledc_basic` / `ledc_fade`                        | todo   |               |
 | W0  | Decide WiFi direction (see Phase 3)                           | todo   |               |
 | W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | todo   |               |
@@ -41,6 +41,11 @@ Append one line per working session: date, step IDs touched, outcome.
 - 2026-11-04: I5 rerun with ESP-IDF v6.1 (pins this fork's QEMU,
   esp-develop-9.2.2-20260417): `i2c_tmp105` PASS on `-M esp32` and
   `-M esp32s3`, same output as with 6.0.2.
+- 2026-11-04: L1, L3 done. New `esp32s3.ledc` model wired at 0x60019000
+  (IRQ 35). `tests/esp-idf/ledc_s3` (IDF v6.1) passes: CH0 4096 and CH1
+  256 read back, trace shows 50% and 25%, register readback and
+  self-clear OK, `ledc_get_freq` 5000. `i2c_tmp105` still passes on both
+  machines. The DUTY register has 4 fractional bits, not 8.
 
 ### Open decisions
 
@@ -145,7 +150,7 @@ as `esp32_machine_init_i2c` does (`hw/xtensa/esp32.c:742-755`).
 - Timer n `CONF` at `0xA0+8n`: `duty_res` bits 0-3 (max 14), `para_up`
   bit 25. `VALUE` at `0xA4+8n`.
 - Channel n at `0x14*n`: `CONF0` (+0, `timer_sel` bits 0-1, `para_up`
-  bit 4), `HPOINT` (+4), `DUTY` (+8, 8 fractional bits), `CONF1` (+0xC,
+  bit 4), `HPOINT` (+4), `DUTY` (+8, 4 fractional bits), `CONF1` (+0xC,
   `duty_start` bit 31), `DUTY_R` (+0x10).
 - Apply duty on `para_up`/`duty_start`. `DUTY_R` returns the current duty
   (the ESP32 model returns 0, which breaks `ledc_get_duty`).
