@@ -10,6 +10,7 @@
  * values have a zero low nibble.
  */
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -187,12 +188,74 @@ static void test_legacy_long_cmd(void)
     i2c_driver_delete(I2C_NUM_0);
 }
 
+#if CONFIG_IDF_TARGET_ESP32S3
+/*
+ * Register-level checks of the ESP32-S3 controller model on I2C1 (idle):
+ * configuration registers read back, CONF_UPGATE / FSM_RST and
+ * SCL_SP_CONF.SCL_RST_SLV_EN self-clear.
+ */
+#define S3_I2C1_BASE            0x60027000
+#define S3_I2C_CTR              0x04
+#define S3_I2C_FIFO_CONF        0x18
+#define S3_I2C_FILTER_CFG       0x50
+#define S3_I2C_CLK_CONF         0x54
+#define S3_I2C_SCL_ST_TO        0x78
+#define S3_I2C_SCL_MAIN_ST_TO   0x7c
+#define S3_I2C_SCL_SP_CONF      0x80
+#define S3_I2C_SCL_STRETCH_CONF 0x84
+#define S3_I2C_CTR_MS_MODE      (1u << 4)
+#define S3_I2C_CTR_FSM_RST      (1u << 10)
+#define S3_I2C_CTR_CONF_UPGATE  (1u << 11)
+
+static uint32_t s3_reg_rw(uint32_t offset, uint32_t value)
+{
+    volatile uint32_t *reg = (volatile uint32_t *)(S3_I2C1_BASE + offset);
+
+    *reg = value;
+    return *reg;
+}
+
+static void test_s3_registers(void)
+{
+    static const struct {
+        uint32_t offset;
+        uint32_t value;
+    } readback[] = {
+        { S3_I2C_FIFO_CONF, 0x00004021 },
+        { S3_I2C_FILTER_CFG, 0x00000377 },
+        { S3_I2C_CLK_CONF, 0x00201013 },
+        { S3_I2C_SCL_ST_TO, 0x00000010 },
+        { S3_I2C_SCL_MAIN_ST_TO, 0x00000011 },
+        { S3_I2C_SCL_STRETCH_CONF, 0x000003ff },
+    };
+    bool ok = true;
+
+    for (size_t i = 0; i < sizeof(readback) / sizeof(readback[0]); i++) {
+        if (s3_reg_rw(readback[i].offset, readback[i].value) != readback[i].value) {
+            ok = false;
+        }
+    }
+
+    uint32_t ctr = s3_reg_rw(S3_I2C_CTR, S3_I2C_CTR_MS_MODE | S3_I2C_CTR_FSM_RST |
+                                         S3_I2C_CTR_CONF_UPGATE);
+    uint32_t sp_conf = s3_reg_rw(S3_I2C_SCL_SP_CONF, (9u << 1) | 1u);
+
+    ok = ok && ctr == S3_I2C_CTR_MS_MODE && sp_conf == (9u << 1);
+    printf("I2C_TEST s3 regs: readback/self-clear %s (ctr=0x%08" PRIx32
+           " sp_conf=0x%08" PRIx32 ")\n", ok ? "OK" : "FAIL", ctr, sp_conf);
+    check(ok);
+}
+#endif
+
 void app_main(void)
 {
     printf("I2C_TEST START\n");
     test_new_driver_i2c0();
     test_new_driver_i2c1_empty();
     test_legacy_long_cmd();
+#if CONFIG_IDF_TARGET_ESP32S3
+    test_s3_registers();
+#endif
     printf("I2C_TEST RESULT %s\n", s_pass ? "PASS" : "FAIL");
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(100));
