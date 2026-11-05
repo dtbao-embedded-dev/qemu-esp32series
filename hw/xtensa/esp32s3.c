@@ -51,6 +51,7 @@
 #include "hw/i2c/esp32s3_i2c.h"
 #include "hw/misc/esp32s3_ledc.h"
 #include "hw/misc/esp32s3_sens.h"
+#include "hw/ssi/esp32s3_gpspi.h"
 #include "hw/misc/esp32s3_wifi.h"
 #include "hw/misc/esp32s3_wifi_phy.h"
 #include "hw/misc/esp32s3_rng.h"
@@ -130,6 +131,7 @@ typedef struct Esp32s3SocState {
     ESP32S3I2CState i2c[ESP32S3_I2C_COUNT];
     ESP32S3LEDCState ledc;
     ESP32S3SensState sens;
+    ESP32S3GpSpiState gpspi[ESP32S3_GPSPI_COUNT];
     ESP32S3GPIOState gpio;
     Esp32s3RngState rng;
     Esp32S3TWAIState twai;
@@ -226,6 +228,9 @@ static void esp32s3_soc_reset(DeviceState *dev)
         device_cold_reset(DEVICE(&s->ledc));
         device_cold_reset(DEVICE(&s->sens));
         device_cold_reset(DEVICE(&s->gpio));
+        for (int i = 0; i < ESP32S3_GPSPI_COUNT; ++i) {
+            device_cold_reset(DEVICE(&s->gpspi[i]));
+        }
     }
     if (s->requested_reset & ESP32S3_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -522,6 +527,22 @@ static void esp32s3_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->sens), &s->periph_bus, &error_fatal);
     esp32s3_soc_add_periph_device(sys_mem, &s->sens, DR_REG_SENS_BASE);
 
+    /*
+     * GP-SPI2/SPI3 masters, their SSI buses are named "spi2" and "spi3".
+     * They sit on the main system bus so that -device ...,bus=spi2 finds them.
+     */
+    for (int i = 0; i < ESP32S3_GPSPI_COUNT; ++i) {
+        const hwaddr gpspi_base[] = {DR_REG_SPI2_BASE, DR_REG_SPI3_BASE};
+        char name[8];
+        snprintf(name, sizeof(name), "spi%d", i + 2);
+        qdev_prop_set_string(DEVICE(&s->gpspi[i]), "bus-name", name);
+        sysbus_realize(SYS_BUS_DEVICE(&s->gpspi[i]), &error_fatal);
+        esp32s3_soc_add_periph_device(sys_mem, &s->gpspi[i], gpspi_base[i]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->gpspi[i]), 0,
+                           qdev_get_gpio_in(intmatrix_dev,
+                                            ETS_SPI2_INTR_SOURCE + i));
+    }
+
     qdev_realize(DEVICE(&s->sdmmc), &s->periph_bus, &error_fatal);
     esp32s3_soc_add_periph_device(sys_mem, &s->sdmmc, DR_REG_SDMMC_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
@@ -636,6 +657,8 @@ static void esp32s3_soc_init(Object *obj)
 
     object_initialize_child(obj, "ledc", &s->ledc, TYPE_ESP32S3_LEDC);
     object_initialize_child(obj, "sens", &s->sens, TYPE_ESP32S3_SENS);
+    object_initialize_child(obj, "spi2", &s->gpspi[0], TYPE_ESP32S3_GPSPI);
+    object_initialize_child(obj, "spi3", &s->gpspi[1], TYPE_ESP32S3_GPSPI);
 
     object_property_add_alias(obj, "serial0", OBJECT(&s->uart[0]), "chardev");
     object_property_add_alias(obj, "serial1", OBJECT(&s->uart[1]), "chardev");
