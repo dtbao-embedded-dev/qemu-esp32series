@@ -20,7 +20,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | A1 | `esp32s3.sens` model: RTC ADC oneshot + TSENS | done | TSENS moved from the WiFi PHY stub |
 | A2 | Per-channel input values (properties, `qom-set`) | done | `-global driver=esp32s3.sens,...` |
 | A4 | `tests/esp-idf/adc_s3` + IDF `adc/oneshot_read` | done | |
-| A3 | ADC2 while WiFi is on (arbiter flags) | todo | |
+| A3 | ADC2 while WiFi is on (arbiter flags) | done | flag bits 0 already valid |
 | W6 | SoftAP: emulated station joins and gets an IP | todo | |
 
 Order is W4, W5, A1, A2, A4, A3, W6: W6 relies on the SoftAP part of the
@@ -44,6 +44,9 @@ Append one line per working session: date, step IDs touched, outcome.
   prints 500/2500/3333. WiFi still starts with TSENS in the SENS model;
   I2C, LEDC and open_eth tests still pass. The `-global` short form does
   not work for this type (dot in the name); use `driver=,property=`.
+- 2026-11-05: A3 done. `wifi_s3` reads ADC2 ch1 = 1234 after connecting,
+  with WiFi running; the SENS model's zero flag bits already pass the
+  driver's arbiter check, so no QEMU change was needed.
 
 ## Constraints the request did not mention
 
