@@ -29,6 +29,7 @@
 static void esp32s3_intmatrix_irq_handler(void *opaque, int n, int level)
 {
     Esp32s3IntMatrixState *s = ESP32S3_INTMATRIX(opaque);
+    s->levels[n] = level != 0;
     for (int i = 0; i < ESP32S3_CPU_COUNT; ++i) {
         if (s->outputs[i] == NULL) {
             continue;
@@ -39,6 +40,30 @@ static void esp32s3_intmatrix_irq_handler(void *opaque, int n, int level)
                 qemu_set_irq(s->outputs[i][int_index], level);
                 break;
             }
+        }
+    }
+}
+
+/* Drive CPU interrupt @out_index of @cpu with the OR of its routed sources */
+static void esp32s3_intmatrix_update_output(Esp32s3IntMatrixState *s, int cpu,
+                                            int out_index)
+{
+    const int nextint = s->cpu[cpu] ? s->cpu[cpu]->env.config->nextint : 0;
+    int level = 0;
+
+    if (s->outputs[cpu] == NULL) {
+        return;
+    }
+    for (int src = 0; src < ESP32S3_INT_MATRIX_INPUTS; ++src) {
+        if (IRQ_MAP(cpu, src) == out_index && s->levels[src]) {
+            level = 1;
+            break;
+        }
+    }
+    for (int int_index = 0; int_index < nextint; ++int_index) {
+        if (s->cpu[cpu]->env.config->extint[int_index] == out_index) {
+            qemu_set_irq(s->outputs[cpu][int_index], level);
+            break;
         }
     }
 }
@@ -72,7 +97,18 @@ static void esp32s3_intmatrix_write(void* opaque, hwaddr addr, uint64_t value, u
     Esp32s3IntMatrixState *s = ESP32S3_INTMATRIX(opaque);
     uint8_t* map_entry = get_map_entry(s, addr);
     if (map_entry != NULL) {
+        const int cpu = (addr / sizeof(uint32_t)) / ESP32S3_INT_MATRIX_INPUTS;
+        const uint8_t old_index = *map_entry;
         *map_entry = value & 0x1f;
+        /*
+         * ESP-IDF disables a non-shared interrupt by routing its source to a
+         * reserved CPU interrupt and enables it by routing it back, so a
+         * source that is already asserted must reach its new CPU interrupt.
+         */
+        if (*map_entry != old_index && cpu < ESP32S3_CPU_COUNT) {
+            esp32s3_intmatrix_update_output(s, cpu, old_index);
+            esp32s3_intmatrix_update_output(s, cpu, *map_entry);
+        }
     }
 }
 
