@@ -406,6 +406,12 @@ static void esp32s3_init_wifi(Esp32s3SocState *ms)
 
     ms->wifi = wifi;
     sysbus_realize_and_unref(SYS_BUS_DEVICE(wifi), &error_fatal);
+    /*
+     * A blank eFuse has MAC 00:00:00:00:00:00; report the NIC address
+     * (-nic ...,mac=) instead. The eFuse is realized later and loads it.
+     */
+    esp_efuse_set_default_mac(ESP_EFUSE(&ms->efuse),
+                              ESP32S3_WIFI(wifi)->parent_obj.conf.macaddr.a);
     memory_region_add_subregion_overlap(sys_mem, ESP32S3_WIFI_BASE,
                                         sysbus_mmio_get_region(SYS_BUS_DEVICE(wifi), 0), 0);
     sysbus_connect_irq(SYS_BUS_DEVICE(wifi), 0,
