@@ -225,6 +225,7 @@ static void esp32s3_soc_reset(DeviceState *dev)
         }
         device_cold_reset(DEVICE(&s->ledc));
         device_cold_reset(DEVICE(&s->sens));
+        device_cold_reset(DEVICE(&s->gpio));
     }
     if (s->requested_reset & ESP32S3_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
