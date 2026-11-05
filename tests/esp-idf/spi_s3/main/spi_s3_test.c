@@ -3,7 +3,9 @@
  *
  * QEMU must be started with a W25X16 flash on SPI2 CS0 and on SPI3 CS1:
  *   -device w25x16,bus=spi2,cs=0 -device w25x16,bus=spi3,cs=1
- * SPI3 CS0 has no device behind it. Every result line starts with
+ * SPI3 CS0 has no device behind it. Each bus runs once in CPU mode (32
+ * bytes in W0..W15) and once with DMA (a 256-byte page through GDMA).
+ * Every result line starts with
  * "SPI_TEST"; the last one is "SPI_TEST RESULT PASS" or "SPI_TEST RESULT FAIL".
  */
 
@@ -25,6 +27,7 @@
 #define CMD_FAST_READ       0x0b
 #define CMD_READ_JEDEC_ID   0x9f
 #define SMALL_LEN           32          /* fits in the W0-W15 buffer */
+#define PAGE_LEN            256         /* one flash page, needs DMA */
 
 typedef struct {
     const char *name;
@@ -187,32 +190,70 @@ static void test_flash(const flash_t *f, uint32_t addr, size_t len)
     free(rx);
 }
 
+static void free_bus(spi_host_device_t host, spi_device_handle_t *devs, size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        if (devs[i]) {
+            spi_bus_remove_device(devs[i]);
+        }
+    }
+    esp_err_t err = spi_bus_free(host);
+    if (err != ESP_OK) {
+        printf("SPI_TEST spi%d free %s\n", host + 1, esp_err_to_name(err));
+        check(false);
+    }
+}
+
+/* SPI2: W25X16 on CS0, full duplex */
+static void run_spi2(int dma, const char *name, uint32_t addr, size_t len)
+{
+    if (!init_bus(SPI2_HOST, 11, 13, 12, dma)) {
+        return;
+    }
+    spi_device_handle_t dev = add_device(SPI2_HOST, 10, false);
+    const flash_t f = { name, dev, false };
+
+    if (f.dev) {
+        test_flash(&f, addr, len);
+    }
+    free_bus(SPI2_HOST, &dev, 1);
+}
+
+/* SPI3: nothing on CS0, W25X16 on CS1, half duplex */
+static void run_spi3(int dma, const char *empty_name, const char *name, uint32_t addr,
+                     size_t len)
+{
+    if (!init_bus(SPI3_HOST, 4, 5, 6, dma)) {
+        return;
+    }
+    spi_device_handle_t devs[2] = { add_device(SPI3_HOST, 7, false), add_device(SPI3_HOST, 8, true) };
+    const flash_t empty = { empty_name, devs[0], false };
+    const flash_t f = { name, devs[1], true };
+    esp_err_t err;
+
+    if (empty.dev) {
+        uint32_t id = read_id(&empty, true, &err);
+        char what[32];
+        snprintf(what, sizeof(what), "no device id 0x%06lx", (unsigned long)id);
+        report(empty.name, what, err, id == 0 || id == 0xffffff);
+    }
+    if (f.dev) {
+        test_flash(&f, addr, len);
+    }
+    free_bus(SPI3_HOST, devs, 2);
+}
+
 void app_main(void)
 {
     printf("SPI_TEST START\n");
 
-    if (init_bus(SPI2_HOST, 11, 13, 12, SPI_DMA_DISABLED)) {
-        const flash_t f = { "spi2-cs0", add_device(SPI2_HOST, 10, false), false };
-        if (f.dev) {
-            test_flash(&f, 0x100, SMALL_LEN);
-        }
-    }
+    /* CPU mode: data through W0..W15 */
+    run_spi2(SPI_DMA_DISABLED, "spi2-cs0", 0x100, SMALL_LEN);
+    run_spi3(SPI_DMA_DISABLED, "spi3-cs0", "spi3-cs1", 0x200, SMALL_LEN);
 
-    if (init_bus(SPI3_HOST, 4, 5, 6, SPI_DMA_DISABLED)) {
-        const flash_t empty = { "spi3-cs0", add_device(SPI3_HOST, 7, false), false };
-        const flash_t f = { "spi3-cs1", add_device(SPI3_HOST, 8, true), true };
-        esp_err_t err;
-
-        if (empty.dev) {
-            uint32_t id = read_id(&empty, true, &err);
-            char what[32];
-            snprintf(what, sizeof(what), "no device id 0x%06lx", (unsigned long)id);
-            report(empty.name, what, err, id == 0 || id == 0xffffff);
-        }
-        if (f.dev) {
-            test_flash(&f, 0x200, SMALL_LEN);
-        }
-    }
+    /* DMA mode: one whole flash page through GDMA */
+    run_spi2(SPI_DMA_CH_AUTO, "spi2-cs0-dma", 0x1000, PAGE_LEN);
+    run_spi3(SPI_DMA_CH_AUTO, "spi3-cs0-dma", "spi3-cs1-dma", 0x2000, PAGE_LEN);
 
     printf("SPI_TEST RESULT %s\n", s_pass ? "PASS" : "FAIL");
     fflush(stdout);
