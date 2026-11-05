@@ -6,13 +6,6 @@ imported from tag `esp-develop-9.2.2-20260417`. Remotes: `origin` is
 Goal of the fork: extend the ESP32-S3 machine with peripherals upstream
 does not model yet.
 
-## Active work
-
-- [docs/plan-esp32s3-adc-wifi.md](docs/plan-esp32s3-adc-wifi.md): plan
-  and progress for ADC oneshot and the remaining WiFi work on ESP32-S3.
-  Update its Progress table with each step; delete the file (and this
-  link) when all steps are done.
-
 ## Layout (ESP32 parts)
 
 | Machine | Board / SoC | Interrupts | Clock |
@@ -54,6 +47,12 @@ does not model yet.
   It announces three open SSIDs: `PICSimLabWifi` (ch 1), `Espressif`
   (ch 5) and `MasseyWifi` (ch 10). There is no WPA2; connect with an empty
   password. Traffic goes through slirp (station gets 10.0.2.15).
+- SoftAP: when the firmware beacons, the emulation joins it as station
+  02:53:36:30:00:02 and carries the slirp host's traffic. Put slirp on the
+  SoftAP subnet to reach it, e.g.
+  `-nic user,model=esp32s3_wifi,net=192.168.4.0/24,host=192.168.4.2,hostfwd=tcp:127.0.0.1:8081-192.168.4.1:80`.
+  The emulated station runs no DHCP client, so `IP_EVENT_AP_STAIPASSIGNED`
+  never fires.
 - The PHY stubs and the MAC layout come from `docs/wifi-s3-spike.md`. They
   are verified with ESP-IDF v6.1 only; the closed WiFi/PHY libraries change
   per release and may poll other registers.
@@ -127,6 +126,9 @@ reaches it as 10.0.2.2:5555), then waits up to 60 s for one request to
 values listed at the top of `main/adc_s3_test.c` and a monitor
 (`-monitor tcp:127.0.0.1:4444,server,nowait`) to send the `qom-set` it
 waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
+`tests/esp-idf/softap_s3` needs the SoftAP `-nic` line above; fetch
+`http://127.0.0.1:8081/` after `SOFTAP_TEST http ready`, then it prints
+`SOFTAP_TEST RESULT PASS`.
 `tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
 once DHCP succeeds.
