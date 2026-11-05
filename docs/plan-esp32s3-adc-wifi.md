@@ -17,9 +17,9 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 |---|---|---|---|
 | W4 | Outbound TCP and UDP from the firmware to the host | done | no QEMU change needed |
 | W5 | Non-zero station MAC when the eFuse MAC is blank | done | `esp_efuse_set_default_mac` |
-| A1 | `esp32s3.sens` model: RTC ADC oneshot + TSENS | todo | |
-| A2 | Per-channel input values (properties, `qom-set`) | todo | |
-| A4 | `tests/esp-idf/adc_s3` + IDF `adc/oneshot_read` | todo | |
+| A1 | `esp32s3.sens` model: RTC ADC oneshot + TSENS | done | TSENS moved from the WiFi PHY stub |
+| A2 | Per-channel input values (properties, `qom-set`) | done | `-global driver=esp32s3.sens,...` |
+| A4 | `tests/esp-idf/adc_s3` + IDF `adc/oneshot_read` | done | |
 | A3 | ADC2 while WiFi is on (arbiter flags) | todo | |
 | W6 | SoftAP: emulated station joins and gets an IP | todo | |
 
@@ -37,6 +37,13 @@ Append one line per working session: date, step IDs touched, outcome.
 - 2026-11-05: W5 done. With the WiFi NIC a blank eFuse MAC reads as the
   NIC MAC: `wifi:mode : sta (52:54:00:12:34:56)`, and `mac=` overrides it.
   `open_eth` output is unchanged; I2C and LEDC tests still pass.
+- 2026-11-05: A1, A2, A4 done. Before: any ADC app hung at boot in the
+  ADC self-calibration (DONE never set). `esp32s3.sens` now converts at
+  once: `adc_s3` reads ADC1 ch0/3/6 = 1000/2048/4095 and ADC2 ch1 = 1234,
+  sees a `qom-set` change (3000) and reads 25.0 C; IDF `oneshot_read`
+  prints 500/2500/3333. WiFi still starts with TSENS in the SENS model;
+  I2C, LEDC and open_eth tests still pass. The `-global` short form does
+  not work for this type (dot in the name); use `driver=,property=`.
 
 ## Constraints the request did not mention
 

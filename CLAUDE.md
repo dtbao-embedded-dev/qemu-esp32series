@@ -64,6 +64,18 @@ does not model yet.
   register layout in ESP-IDF (`components/soc/esp32s3`,
   `components/hal/esp32s3`) first; offsets and opcodes often differ.
 
+## ADC on the S3 machine
+
+- `hw/misc/esp32s3_sens.c` models the RTC side of SAR ADC1/ADC2 used by
+  `adc_oneshot_*`, plus the temperature sensor (about 25 C). A conversion
+  returns the value set for the selected channel (12 bits, default 0):
+  `-global driver=esp32s3.sens,property=adc1-ch3,value=2048` (the short
+  `-global esp32s3.sens.adc1-ch3=...` form does not work because the type
+  name has a dot), or at run time `qom-set /machine/soc/sens adc1-ch3 2048`
+  from the monitor.
+- Not modelled: ADC continuous mode (`APB_SARADC` + GDMA), eFuse
+  calibration (`adc_cali_*` returns "eFuse bits not burnt"), touch, ULP.
+
 ## Build and run
 
 Verified on this Windows machine with MSYS2 MINGW64, out of tree in
@@ -109,7 +121,11 @@ connects, gets an IP, echoes TCP and UDP with
 `tests/esp-idf/wifi_s3/host_echo.py` (run it on the host first; the guest
 reaches it as 10.0.2.2:5555), then waits up to 60 s for one request to
 `http://127.0.0.1:8080/` from the host before printing
-`WIFI_TEST RESULT PASS`. `tests/esp-idf/openeth_s3` needs
+`WIFI_TEST RESULT PASS`. `tests/esp-idf/adc_s3` needs the four `-global driver=esp32s3.sens,...`
+values listed at the top of `main/adc_s3_test.c` and a monitor
+(`-monitor tcp:127.0.0.1:4444,server,nowait`) to send the `qom-set` it
+waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
+`tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
 once DHCP succeeds.
 
