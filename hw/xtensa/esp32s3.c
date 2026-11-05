@@ -50,6 +50,8 @@
 #include "hw/char/esp32s3_uart.h"
 #include "hw/i2c/esp32s3_i2c.h"
 #include "hw/misc/esp32s3_ledc.h"
+#include "hw/misc/esp32s3_wifi.h"
+#include "hw/misc/esp32s3_wifi_phy.h"
 #include "hw/misc/esp32s3_rng.h"
 
 #include "hw/nvram/esp32s3_efuse.h"
@@ -158,6 +160,7 @@ typedef struct Esp32s3SocState {
     MemoryRegion iomem;
     DWCSDMMCState sdmmc;
     DeviceState *eth;
+    DeviceState *wifi;
     SsiPsramState *psram;
 
     uint32_t requested_reset;
@@ -364,6 +367,57 @@ static void esp32s3_init_openeth(Esp32s3SocState *ms)
 
     sysbus_connect_irq(sbd, 0,
                         qdev_get_gpio_in(DEVICE(&ms->intmatrix), ETS_ETH_MAC_INTR_SOURCE));
+}
+
+
+/*
+ * WiFi NIC, requested with "-nic ...,model=esp32s3_wifi". The MAC and the
+ * PHY stubs are only created for it, so a machine without that NIC keeps
+ * the catch-all behaviour at these addresses.
+ *
+ * open_eth uses the same interrupt source (ETS_ETH_MAC_INTR_SOURCE is
+ * ETS_WIFI_MAC_INTR_SOURCE), so the two NICs cannot be used together.
+ *
+ * Called before the RNG is mapped: its word at 0x6003507c lies inside the
+ * MAC range and, added later with the same priority, stays on top.
+ */
+static void esp32s3_init_wifi(Esp32s3SocState *ms)
+{
+    static const hwaddr phy_base[ESP32S3_WIFI_PHY_BLOCK_COUNT] = {
+        [ESP32S3_WIFI_PHY_ANA] = ESP32S3_WIFI_PHY_ANA_BASE,
+        [ESP32S3_WIFI_PHY_FE] = DR_REG_FE_BASE,
+        [ESP32S3_WIFI_PHY_FE2] = DR_REG_FE2_BASE,
+        [ESP32S3_WIFI_PHY_NRX] = DR_REG_NRX_BASE & ~(hwaddr)0xfff,
+        [ESP32S3_WIFI_PHY_BB] = DR_REG_BB_BASE,
+        [ESP32S3_WIFI_PHY_TSENS] = DR_REG_SENS_BASE + ESP32S3_WIFI_PHY_TSENS_OFFSET,
+    };
+    MemoryRegion *sys_mem = get_system_memory();
+    DeviceState *wifi = qemu_create_nic_device(TYPE_ESP32S3_WIFI, false, NULL);
+    DeviceState *phy;
+
+    if (!wifi) {
+        return;
+    }
+    if (ms->eth) {
+        error_report("esp32s3: the esp32s3_wifi and open_eth NICs share an "
+                     "interrupt source and cannot be used together");
+        exit(1);
+    }
+
+    ms->wifi = wifi;
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(wifi), &error_fatal);
+    memory_region_add_subregion_overlap(sys_mem, ESP32S3_WIFI_BASE,
+                                        sysbus_mmio_get_region(SYS_BUS_DEVICE(wifi), 0), 0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(wifi), 0,
+                       qdev_get_gpio_in(DEVICE(&ms->intmatrix), ETS_WIFI_MAC_INTR_SOURCE));
+
+    phy = qdev_new(TYPE_ESP32S3_WIFI_PHY);
+    object_property_add_child(OBJECT(ms), "wifi_phy", OBJECT(phy));
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(phy), &error_fatal);
+    for (int i = 0; i < ESP32S3_WIFI_PHY_BLOCK_COUNT; i++) {
+        memory_region_add_subregion_overlap(sys_mem, phy_base[i],
+                                            sysbus_mmio_get_region(SYS_BUS_DEVICE(phy), i), 0);
+    }
 }
 
 
@@ -705,6 +759,7 @@ static void esp32s3_machine_init(MachineState *machine)
 
     /* Initialize OpenCores Ethernet controller now sicne it requires the interrupt matrix */
     esp32s3_init_openeth(ss);
+    esp32s3_init_wifi(ss);
 
     /* USB Serial JTAG realization */
     {
