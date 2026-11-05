@@ -21,6 +21,7 @@
 
 #include "esp_event.h"
 #include "esp_http_server.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -131,6 +132,18 @@ static bool step_init(void)
         err = esp_wifi_init(&cfg);
     }
     return report("init", err, err == ESP_OK);
+}
+
+/* The station MAC must not be all zero (QEMU fills a blank eFuse MAC) */
+static bool step_mac(void)
+{
+    uint8_t mac[6] = { 0 };
+    esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    bool ok = err == ESP_OK && (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]);
+
+    printf("WIFI_TEST mac " MACSTR " %s\n", MAC2STR(mac),
+           ok ? "OK" : (err != ESP_OK ? esp_err_to_name(err) : "ZERO"));
+    return ok;
 }
 
 static bool step_start(void)
@@ -273,7 +286,7 @@ void app_main(void)
 
     s_events = xEventGroupCreate();
     printf("WIFI_TEST START\n");
-    pass = step_init() && step_start() && step_scan() && step_connect() &&
+    pass = step_init() && step_mac() && step_start() && step_scan() && step_connect() &&
            step_echo(SOCK_STREAM, "tcp out", TCP_MSG) &&
            step_echo(SOCK_DGRAM, "udp out", UDP_MSG) && step_http();
     printf("WIFI_TEST RESULT %s\n", pass ? "PASS" : "FAIL");
