@@ -21,9 +21,9 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | L2  | Instant fade + `DUTY_CHNG_END` interrupt                      | done   | callback, `WAIT_DONE`, multi-round step fade |
 | L3  | Wire LEDC into `esp32s3.c`, Kconfig `select LED`, meson       | done   | `info mtree`: 0x60019000 |
 | L4  | Verify with `ledc_basic` / `ledc_fade`                        | done   | IDF v6.1 examples run on `-M esp32s3` |
-| W0  | Decide WiFi direction (see Phase 3)                           | todo   |               |
-| W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | todo   |               |
-| W2  | Spike (1-2 days): map lcgamboa `esp32c3_wifi` onto S3         | todo   |               |
+| W0  | Decide WiFi direction (see Phase 3)                           | done   | A: port lcgamboa WiFi |
+| W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | dropped | A chosen instead |
+| W2  | Spike (1-2 days): map lcgamboa `esp32c3_wifi` onto S3         | done   | GO, see `docs/wifi-s3-spike.md` |
 | W3  | Port WiFi emulation to S3 (only if W2 says go)                | todo   |               |
 
 ### Log
@@ -51,10 +51,15 @@ Append one line per working session: date, step IDs touched, outcome.
   and a step fade the driver reloads twice (8191 -> 1030 -> 1002 -> 1000).
   IDF v6.1 `ledc_basic` traces 50%; `ledc_fade` loops 30 times in 60 s.
   `i2c_tmp105` still passes on both machines.
+- 2026-11-05: W0 decided: option A (port the lcgamboa WiFi emulation); W1
+  dropped. W2 done, GO: with register stubs only, IDF v6.1
+  `esp_wifi_start()` returns and a scan completes on `-M esp32s3`. The PHY
+  stubs match lcgamboa's C3 models and the MAC uses the C3 layout at
+  0x60033000. Details in `docs/wifi-s3-spike.md`.
 
 ### Open decisions
 
-1. WiFi direction: A, B, C, or B/C plus the A spike (recommended).
+1. WiFi direction: decided, option A (2026-11-05).
 2. Extra I2C slaves besides `tmp105` (EEPROM, OLED, a specific sensor).
 3. Reference ESP-IDF version for testing: 6.1 (pins this QEMU) or 6.0.2.
    Matters most for WiFi option A because the closed blobs change per
