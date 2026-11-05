@@ -104,7 +104,9 @@ or `DUTY_R`) prints `LEDC_TEST RESULT PASS`; add
 `-trace led_set_intensity` to see the LEDC channel outputs.
 `tests/esp-idf/wifi_s3` needs
 `-nic user,model=esp32s3_wifi,hostfwd=tcp:127.0.0.1:8080-:80`; it scans,
-connects, gets an IP and then waits up to 60 s for one request to
+connects, gets an IP, echoes TCP and UDP with
+`tests/esp-idf/wifi_s3/host_echo.py` (run it on the host first; the guest
+reaches it as 10.0.2.2:5555), then waits up to 60 s for one request to
 `http://127.0.0.1:8080/` from the host before printing
 `WIFI_TEST RESULT PASS`. `tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`

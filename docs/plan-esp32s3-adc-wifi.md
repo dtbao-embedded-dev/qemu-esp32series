@@ -15,7 +15,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 
 | Step | What | Status | Notes |
 |---|---|---|---|
-| W4 | Outbound TCP and UDP from the firmware to the host | todo | |
+| W4 | Outbound TCP and UDP from the firmware to the host | done | no QEMU change needed |
 | W5 | Non-zero station MAC when the eFuse MAC is blank | todo | |
 | A1 | `esp32s3.sens` model: RTC ADC oneshot + TSENS | todo | |
 | A2 | Per-channel input values (properties, `qom-set`) | todo | |
@@ -31,6 +31,9 @@ lcgamboa access point, which has not been run on the S3 yet.
 Append one line per working session: date, step IDs touched, outcome.
 
 - 2026-11-05: plan written. No code changed yet.
+- 2026-11-05: W4 done. `wifi_s3` now sends TCP and UDP to
+  `host_echo.py` through 10.0.2.2:5555 and gets both echoes back; the
+  existing WiFi model already handled it.
 
 ## Constraints the request did not mention
 
