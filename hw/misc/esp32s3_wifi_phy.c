@@ -26,11 +26,6 @@ int esp32_wifi_channel;
 #define ANA_FREQ_SHIFT      20
 #define ANA_MAX_CHANNEL     14
 
-/* Size of the TSENS window: a single register */
-#define TSENS_SIZE          4
-/* TSENS_READY (bit 8) set, raw reading 0x68, about 25 degrees C */
-#define TSENS_VALUE         0x168
-
 static uint32_t esp32s3_wifi_phy_ana_read(ESP32S3WifiPhyBlock *b, hwaddr addr)
 {
     uint32_t stored = b->mem[addr / 4];
@@ -72,8 +67,6 @@ static uint64_t esp32s3_wifi_phy_read(void *opaque, hwaddr addr, unsigned int si
     case ESP32S3_WIFI_PHY_NRX:
     case ESP32S3_WIFI_PHY_BB:
         return 0xffffffff;
-    case ESP32S3_WIFI_PHY_TSENS:
-        return TSENS_VALUE;
     case ESP32S3_WIFI_PHY_FE2:
     default:
         return 0;
@@ -121,7 +114,6 @@ static void esp32s3_wifi_phy_init(Object *obj)
         [ESP32S3_WIFI_PHY_FE2] = "esp32s3.wifi_phy.fe2",
         [ESP32S3_WIFI_PHY_NRX] = "esp32s3.wifi_phy.nrx",
         [ESP32S3_WIFI_PHY_BB] = "esp32s3.wifi_phy.bb",
-        [ESP32S3_WIFI_PHY_TSENS] = "esp32s3.wifi_phy.tsens",
     };
     ESP32S3WifiPhyState *s = ESP32S3_WIFI_PHY(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
@@ -132,8 +124,7 @@ static void esp32s3_wifi_phy_init(Object *obj)
         b->phy = s;
         b->id = i;
         memory_region_init_io(&b->iomem, obj, &esp32s3_wifi_phy_ops, b, names[i],
-                              i == ESP32S3_WIFI_PHY_TSENS ? TSENS_SIZE
-                                                          : ESP32S3_WIFI_PHY_BLOCK_SIZE);
+                              ESP32S3_WIFI_PHY_BLOCK_SIZE);
         sysbus_init_mmio(sbd, &b->iomem);
     }
 }

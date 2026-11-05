@@ -47,14 +47,33 @@ does not model yet.
   It announces three open SSIDs: `PICSimLabWifi` (ch 1), `Espressif`
   (ch 5) and `MasseyWifi` (ch 10). There is no WPA2; connect with an empty
   password. Traffic goes through slirp (station gets 10.0.2.15).
+- SoftAP: when the firmware beacons, the emulation joins it as station
+  02:53:36:30:00:02 and carries the slirp host's traffic. Put slirp on the
+  SoftAP subnet to reach it, e.g.
+  `-nic user,model=esp32s3_wifi,net=192.168.4.0/24,host=192.168.4.2,hostfwd=tcp:127.0.0.1:8081-192.168.4.1:80`.
+  The emulated station runs no DHCP client, so `IP_EVENT_AP_STAIPASSIGNED`
+  never fires.
 - The PHY stubs and the MAC layout come from `docs/wifi-s3-spike.md`. They
   are verified with ESP-IDF v6.1 only; the closed WiFi/PHY libraries change
   per release and may poll other registers.
-- The station MAC is 00:00:00:00:00:00 unless the eFuse image has one; the
-  model takes it from the MAC address register the firmware programs.
+- With the WiFi NIC, a blank eFuse MAC reads as the NIC MAC
+  (`-nic ...,mac=`, default 52:54:00:12:34:56); only the in-memory eFuse is
+  patched, never the image file, and a burned MAC wins.
 - Original-ESP32 models are the usual porting base, but check the S3
   register layout in ESP-IDF (`components/soc/esp32s3`,
   `components/hal/esp32s3`) first; offsets and opcodes often differ.
+
+## ADC on the S3 machine
+
+- `hw/misc/esp32s3_sens.c` models the RTC side of SAR ADC1/ADC2 used by
+  `adc_oneshot_*`, plus the temperature sensor (about 25 C). A conversion
+  returns the value set for the selected channel (12 bits, default 0):
+  `-global driver=esp32s3.sens,property=adc1-ch3,value=2048` (the short
+  `-global esp32s3.sens.adc1-ch3=...` form does not work because the type
+  name has a dot), or at run time `qom-set /machine/soc/sens adc1-ch3 2048`
+  from the monitor.
+- Not modelled: ADC continuous mode (`APB_SARADC` + GDMA), eFuse
+  calibration (`adc_cali_*` returns "eFuse bits not burnt"), touch, ULP.
 
 ## Build and run
 
@@ -96,10 +115,21 @@ from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
 or `DUTY_R`) prints `LEDC_TEST RESULT PASS`; add
 `-trace led_set_intensity` to see the LEDC channel outputs.
 `tests/esp-idf/wifi_s3` needs
-`-nic user,model=esp32s3_wifi,hostfwd=tcp:127.0.0.1:8080-:80`; it scans,
-connects, gets an IP and then waits up to 60 s for one request to
+`-nic user,model=esp32s3_wifi,hostfwd=tcp:127.0.0.1:8080-:80` and
+`-global driver=esp32s3.sens,property=adc2-ch1,value=1234` (it reads ADC2
+while WiFi runs); it scans,
+connects, gets an IP, echoes TCP and UDP with
+`tests/esp-idf/wifi_s3/host_echo.py` (run it on the host first; the guest
+reaches it as 10.0.2.2:5555), then waits up to 60 s for one request to
 `http://127.0.0.1:8080/` from the host before printing
-`WIFI_TEST RESULT PASS`. `tests/esp-idf/openeth_s3` needs
+`WIFI_TEST RESULT PASS`. `tests/esp-idf/adc_s3` needs the four `-global driver=esp32s3.sens,...`
+values listed at the top of `main/adc_s3_test.c` and a monitor
+(`-monitor tcp:127.0.0.1:4444,server,nowait`) to send the `qom-set` it
+waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
+`tests/esp-idf/softap_s3` needs the SoftAP `-nic` line above; fetch
+`http://127.0.0.1:8081/` after `SOFTAP_TEST http ready`, then it prints
+`SOFTAP_TEST RESULT PASS`.
+`tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
 once DHCP succeeds.
 

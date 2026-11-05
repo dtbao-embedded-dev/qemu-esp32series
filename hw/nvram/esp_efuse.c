@@ -121,6 +121,30 @@ static void esp_hide_protected_block(ESPEfuseState *s)
 
 
 /**
+ * @brief Put the default MAC in BLOCK1 if its MAC field is blank. ESP-IDF
+ * reads MAC_FACTORY byte 0 from bits 40-47, so the address is stored in
+ * reverse byte order.
+ */
+static void esp_efuse_apply_default_mac(ESPEfuseState *s, ESPEfuseBlocks *blocks)
+{
+    const uint8_t *mac = s->default_mac;
+
+    if (!s->has_default_mac || blocks->rd_mac_spi_sys_0 != 0 ||
+        (blocks->rd_mac_spi_sys_1 & 0xffff) != 0) {
+        return;
+    }
+    blocks->rd_mac_spi_sys_0 = mac[5] | (mac[4] << 8) | (mac[3] << 16) |
+                               ((uint32_t)mac[2] << 24);
+    blocks->rd_mac_spi_sys_1 |= mac[1] | (mac[0] << 8);
+}
+
+void esp_efuse_set_default_mac(ESPEfuseState *s, const uint8_t mac[6])
+{
+    memcpy(s->default_mac, mac, sizeof(s->default_mac));
+    s->has_default_mac = true;
+}
+
+/**
  * @brief Load the efuses value from the block device (file)
  */
 static void esp_efuse_reload_from_blk(ESPEfuseState *s)
@@ -141,6 +165,8 @@ static void esp_efuse_reload_from_blk(ESPEfuseState *s)
         assert(s->mirror);
         memcpy(&s->efuses.blocks, s->mirror, size);
     }
+
+    esp_efuse_apply_default_mac(s, &s->efuses.blocks);
 
     /* Copy the efuses to the internal mirror */
     memcpy(&s->efuses_internal.blocks, &s->efuses.blocks, size);

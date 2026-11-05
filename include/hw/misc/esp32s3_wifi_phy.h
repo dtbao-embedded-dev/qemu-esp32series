@@ -7,7 +7,8 @@
  * follow lcgamboa/qemu (branch picsimlab-esp32, commit 64aed503,
  * hw/misc/esp32_fe.c, hw/misc/esp32c3_ana.c and the BB/NRX/FE2 stubs of
  * hw/riscv/esp32c3_picsimlab.c), plus the ESP32-S3 wait loops listed in
- * docs/wifi-s3-spike.md.
+ * docs/wifi-s3-spike.md. The temperature sensor the PHY code also polls is
+ * part of the SENS model (hw/misc/esp32s3_sens.c).
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 or
@@ -26,8 +27,6 @@
 #define ESP32S3_WIFI_PHY_BLOCK_SIZE 0x1000
 /* Analog I2C master (I2C_MST_ANA_CONF0_REG is at +0x40) */
 #define ESP32S3_WIFI_PHY_ANA_BASE   0x6000e000
-/* SENS_SAR_TSENS_CTRL_REG */
-#define ESP32S3_WIFI_PHY_TSENS_OFFSET 0x50
 
 /* MMIO regions of the device, in sysbus_mmio index order */
 typedef enum {
@@ -36,7 +35,6 @@ typedef enum {
     ESP32S3_WIFI_PHY_FE2,       /* 0x60005000 */
     ESP32S3_WIFI_PHY_NRX,       /* page of DR_REG_NRX_BASE, 0x6001c000 */
     ESP32S3_WIFI_PHY_BB,        /* 0x6001d000 */
-    ESP32S3_WIFI_PHY_TSENS,     /* SENS_SAR_TSENS_CTRL_REG, 0x60008850 */
     ESP32S3_WIFI_PHY_BLOCK_COUNT
 } ESP32S3WifiPhyBlockId;
 
