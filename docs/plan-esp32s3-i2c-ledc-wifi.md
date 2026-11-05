@@ -24,7 +24,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | W0  | Decide WiFi direction (see Phase 3)                           | done   | A: port lcgamboa WiFi |
 | W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | dropped | A chosen instead |
 | W2  | Spike (1-2 days): map lcgamboa `esp32c3_wifi` onto S3         | done   | GO, see `docs/wifi-s3-spike.md` |
-| W3  | Port WiFi emulation to S3 (only if W2 says go)                | wip    | start OK; scan, connect next |
+| W3  | Port WiFi emulation to S3 (only if W2 says go)                | wip    | scan, connect, IP OK; TCP next |
 
 ### Log
 
@@ -61,6 +61,10 @@ Append one line per working session: date, step IDs touched, outcome.
   `-nic ...,model=esp32s3_wifi`: `wifi_s3` reaches `start OK` and a scan
   completes with no APs yet. `open_eth` and the default NIC are unchanged;
   both NICs together exit with an error. I2C and LEDC tests still pass.
+- 2026-11-05: W3 scan done. The lcgamboa access point emulation is ported;
+  the S3 MAC does RX/TX DMA with the C3 interrupt bits. `wifi_s3` finds
+  `PICSimLabWifi`/1, `Espressif`/5 and `MasseyWifi`/10, connects to
+  `Espressif` and gets 10.0.2.15 from slirp. I2C and LEDC tests still pass.
 
 ### Open decisions
 
