@@ -6,13 +6,6 @@ imported from tag `esp-develop-9.2.2-20260417`. Remotes: `origin` is
 Goal of the fork: extend the ESP32-S3 machine with peripherals upstream
 does not model yet.
 
-## Active work
-
-- [docs/plan-esp32s3-i2c-ledc-wifi.md](docs/plan-esp32s3-i2c-ledc-wifi.md):
-  plan and progress for I2C0/1, LEDC and WiFi on ESP32-S3. Update its
-  Progress table with each step; delete the file (and this link) when all
-  steps are done.
-
 ## Layout (ESP32 parts)
 
 | Machine | Board / SoC | Interrupts | Clock |
@@ -39,7 +32,26 @@ does not model yet.
   `qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_*_INTR_SOURCE)`, and add
   the device to `esp32s3_soc_reset`.
 - `open_eth` uses `ETS_ETH_MAC_INTR_SOURCE`, which aliases the WiFi MAC
-  source (0).
+  source (0). The two NICs are exclusive: requesting both exits with an
+  error.
+
+## WiFi on the S3 machine
+
+- `-nic user,model=esp32s3_wifi` creates the WiFi MAC
+  (`hw/misc/esp32s3_wifi.c`, 0x60032000-0x60035fff) and the PHY/RF register
+  stubs (`hw/misc/esp32s3_wifi_phy.c`). Without that NIC the machine is
+  unchanged and `open_eth` takes a plain `-nic user`.
+- The access point emulation (`hw/misc/esp32_wifi_ap.c`,
+  `esp32_wlan_packet.c`, `esp32_wlan.h`, `include/hw/misc/esp32_wifi.h`) is
+  taken from lcgamboa/qemu, branch `picsimlab-esp32`, commit 64aed503.
+  It announces three open SSIDs: `PICSimLabWifi` (ch 1), `Espressif`
+  (ch 5) and `MasseyWifi` (ch 10). There is no WPA2; connect with an empty
+  password. Traffic goes through slirp (station gets 10.0.2.15).
+- The PHY stubs and the MAC layout come from `docs/wifi-s3-spike.md`. They
+  are verified with ESP-IDF v6.1 only; the closed WiFi/PHY libraries change
+  per release and may poll other registers.
+- The station MAC is 00:00:00:00:00:00 unless the eFuse image has one; the
+  model takes it from the MAC address register the firmware programs.
 - Original-ESP32 models are the usual porting base, but check the S3
   register layout in ESP-IDF (`components/soc/esp32s3`,
   `components/hal/esp32s3`) first; offsets and opcodes often differ.
@@ -83,6 +95,13 @@ from the IDF build directory. A passing run prints `I2C_TEST RESULT PASS`.
 `tests/esp-idf/ledc_s3` (`esp32s3` only, the ESP32 LEDC model has no fade
 or `DUTY_R`) prints `LEDC_TEST RESULT PASS`; add
 `-trace led_set_intensity` to see the LEDC channel outputs.
+`tests/esp-idf/wifi_s3` needs
+`-nic user,model=esp32s3_wifi,hostfwd=tcp:127.0.0.1:8080-:80`; it scans,
+connects, gets an IP and then waits up to 60 s for one request to
+`http://127.0.0.1:8080/` from the host before printing
+`WIFI_TEST RESULT PASS`. `tests/esp-idf/openeth_s3` needs
+`-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
+once DHCP succeeds.
 
 ESP-IDF v6.1 is the release that pins this fork's QEMU
 (`esp-develop-9.2.2-20260417` in `tools/tools.json`). Local installs live
