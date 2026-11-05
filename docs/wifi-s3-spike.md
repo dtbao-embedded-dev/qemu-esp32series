@@ -1,6 +1,7 @@
 # Spike W2: what the ESP32-S3 WiFi/PHY blobs need from QEMU
 
-Step W2 of `docs/plan-esp32s3-i2c-ledc-wifi.md`. Goal: find which registers
+Step W2 of the I2C/LEDC/WiFi plan for the S3 machine (the working plan was
+removed once all steps were done). Goal: find which registers
 the closed ESP-IDF v6.1 blobs (`libphy.a`, `libpp.a`, `libnet80211.a`) use on
 the ESP32-S3 during `esp_wifi_init()`, `esp_wifi_start()` and a scan, and
 whether the lcgamboa/qemu WiFi emulation (branch `picsimlab-esp32`, commit
@@ -112,7 +113,12 @@ and C3 (`esp_wifi/include/local/esp_wifi_types_native.h`, the
 `ESP32S3 || ESP32C3 || ESP32C2` branches), so lcgamboa's
 `wifi_pkt_rx_ctrl_c3_t` applies.
 
-## What is still missing (for T2-T4)
+## What was still missing (done in T2-T4)
+
+All items below are implemented; `tests/esp-idf/wifi_s3` now scans,
+connects, gets 10.0.2.15 and serves HTTP through a host port forward. See
+the WiFi section of `CLAUDE.md`.
+
 
 - **TX completion.** `TX Q not empty: 500` shows that no TX-done interrupt
   arrives. lcgamboa raises 0x80 in the interrupt status after a write to
