@@ -6,6 +6,13 @@ imported from tag `esp-develop-9.2.2-20260417`. Remotes: `origin` is
 Goal of the fork: extend the ESP32-S3 machine with peripherals upstream
 does not model yet.
 
+## Active work
+
+- [docs/plan-esp32s3-adc-wifi.md](docs/plan-esp32s3-adc-wifi.md): plan
+  and progress for ADC oneshot and the remaining WiFi work on ESP32-S3.
+  Update its Progress table with each step; delete the file (and this
+  link) when all steps are done.
+
 ## Layout (ESP32 parts)
 
 | Machine | Board / SoC | Interrupts | Clock |
