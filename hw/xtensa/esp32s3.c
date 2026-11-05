@@ -50,6 +50,7 @@
 #include "hw/char/esp32s3_uart.h"
 #include "hw/i2c/esp32s3_i2c.h"
 #include "hw/misc/esp32s3_ledc.h"
+#include "hw/misc/esp32s3_sens.h"
 #include "hw/misc/esp32s3_wifi.h"
 #include "hw/misc/esp32s3_wifi_phy.h"
 #include "hw/misc/esp32s3_rng.h"
@@ -128,6 +129,7 @@ typedef struct Esp32s3SocState {
     ESP32S3UARTState uart[ESP32S3_UART_COUNT];
     ESP32S3I2CState i2c[ESP32S3_I2C_COUNT];
     ESP32S3LEDCState ledc;
+    ESP32S3SensState sens;
     ESP32S3GPIOState gpio;
     Esp32s3RngState rng;
     Esp32S3TWAIState twai;
@@ -222,6 +224,7 @@ static void esp32s3_soc_reset(DeviceState *dev)
             device_cold_reset(DEVICE(&s->i2c[i]));
         }
         device_cold_reset(DEVICE(&s->ledc));
+        device_cold_reset(DEVICE(&s->sens));
     }
     if (s->requested_reset & ESP32S3_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -389,7 +392,6 @@ static void esp32s3_init_wifi(Esp32s3SocState *ms)
         [ESP32S3_WIFI_PHY_FE2] = DR_REG_FE2_BASE,
         [ESP32S3_WIFI_PHY_NRX] = DR_REG_NRX_BASE & ~(hwaddr)0xfff,
         [ESP32S3_WIFI_PHY_BB] = DR_REG_BB_BASE,
-        [ESP32S3_WIFI_PHY_TSENS] = DR_REG_SENS_BASE + ESP32S3_WIFI_PHY_TSENS_OFFSET,
     };
     MemoryRegion *sys_mem = get_system_memory();
     DeviceState *wifi = qemu_create_nic_device(TYPE_ESP32S3_WIFI, false, NULL);
@@ -516,6 +518,9 @@ static void esp32s3_soc_realize(DeviceState *dev, Error **errp)
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->ledc), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_LEDC_INTR_SOURCE));
 
+    qdev_realize(DEVICE(&s->sens), &s->periph_bus, &error_fatal);
+    esp32s3_soc_add_periph_device(sys_mem, &s->sens, DR_REG_SENS_BASE);
+
     qdev_realize(DEVICE(&s->sdmmc), &s->periph_bus, &error_fatal);
     esp32s3_soc_add_periph_device(sys_mem, &s->sdmmc, DR_REG_SDMMC_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
@@ -629,6 +634,7 @@ static void esp32s3_soc_init(Object *obj)
     }
 
     object_initialize_child(obj, "ledc", &s->ledc, TYPE_ESP32S3_LEDC);
+    object_initialize_child(obj, "sens", &s->sens, TYPE_ESP32S3_SENS);
 
     object_property_add_alias(obj, "serial0", OBJECT(&s->uart[0]), "chardev");
     object_property_add_alias(obj, "serial1", OBJECT(&s->uart[1]), "chardev");
