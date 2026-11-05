@@ -75,6 +75,24 @@ does not model yet.
 - Not modelled: ADC continuous mode (`APB_SARADC` + GDMA), eFuse
   calibration (`adc_cali_*` returns "eFuse bits not burnt"), touch, ULP.
 
+## GPIO on the S3 machine
+
+- `hw/gpio/esp32s3_gpio.c` is a standalone model (no longer a child of the
+  ESP32 `esp32.gpio`). It keeps OUT/ENABLE (+W1TS/W1TC) for GPIO0-48 and
+  returns the pad levels in IN/IN1: a pad with its output enabled reads its
+  own output, any other pad reads the level driven from outside.
+- Drive inputs with the `in` property (uint64, bit n = GPIOn):
+  `-global driver=esp32s3.gpio,property=in,value=<decimal mask>` at boot, or
+  `qom-set /machine/soc/gpio in <mask>` from the monitor. Other QEMU devices
+  can drive the 49 qdev input lines named `pin`.
+- Interrupts: GPIO_PINn.INT_TYPE (pos/neg/any edge, low/high level) sets
+  STATUS; pins with the CPU bit of INT_ENA show in PCPU_INT/PCPU_INT1 (what
+  the IDF ISR reads) and raise `ETS_GPIO_INTR_SOURCE`. A level type sets its
+  STATUS bit again after a W1TC while the level holds. The NMI and SDIO
+  sources are not wired.
+- Not modelled: IO_MUX and the GPIO matrix routing (FUNCn_IN_SEL/OUT_SEL only
+  keep their value), pull-ups/downs, open drain, RTC IO.
+
 ## Build and run
 
 Verified on this Windows machine with MSYS2 MINGW64, out of tree in
@@ -129,6 +147,11 @@ waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
 `tests/esp-idf/softap_s3` needs the SoftAP `-nic` line above; fetch
 `http://127.0.0.1:8081/` after `SOFTAP_TEST http ready`, then it prints
 `SOFTAP_TEST RESULT PASS`.
+`tests/esp-idf/gpio_s3` needs
+`-global driver=esp32s3.gpio,property=in,value=2199023255584` and a monitor
+to send `qom-set /machine/soc/gpio in 4398046511168` after `GPIO_TEST ready`
+and `qom-set /machine/soc/gpio in 4398046513216` after `GPIO_TEST irq ready`;
+it prints `GPIO_TEST RESULT PASS`.
 `tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
 once DHCP succeeds.
