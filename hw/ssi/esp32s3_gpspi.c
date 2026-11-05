@@ -8,7 +8,9 @@
  * Models the user-defined transaction of the GP-SPI master: setting
  * SPI_CMD.USR runs the command, address, dummy and data phases at once
  * on the SSI bus (named by the "bus-name" property), with data from and
- * to W0..W15. Every phase moves whole bytes on a single data line, except
+ * to W0..W15, or through the GDMA OUT/IN channels bound to this SPI when
+ * SPI_DMA_CONF.DMA_TX_ENA/DMA_RX_ENA is set. Every phase moves whole bytes
+ * on a single data line, except
  * the dummy phase, which makes one transfer per dummy cycle as the QEMU SPI
  * flash model (m25p80) expects; the dual/quad/octal modes, clock timing and
  * the slave mode are not modelled.
@@ -82,24 +84,89 @@ static inline uint32_t esp32s3_gpspi_bytes(uint32_t bitlen_m1)
     return DIV_ROUND_UP(bitlen_m1 + 1, 8);
 }
 
+/*
+ * GDMA channel bound to this SPI in direction @dir (from the GDMA point of
+ * view). The channel the driver started for this peripheral is preferred:
+ * an unconfigured channel also reads PERI_SEL 0, the SPI2 ID.
+ */
+static bool esp32s3_gpspi_dma_chan(ESP32S3GpSpiState *s, int dir,
+                                   uint32_t *chan)
+{
+    const uint32_t start = dir == ESP_GDMA_IN_IDX ? R_GDMA_IN_LINK_START_MASK
+                                                  : R_GDMA_OUT_LINK_START_MASK;
+    ESPGdmaClass *gc;
+
+    if (s->gdma == NULL) {
+        return false;
+    }
+    gc = ESP_GDMA_GET_CLASS(s->gdma);
+    for (uint32_t i = 0; i < gc->m_channel_count; i++) {
+        DmaConfigState *c = &s->gdma->ch_conf[dir][i];
+
+        uint32_t periph = FIELD_EX32(c->peripheral, GDMA_PERI_SEL, PERI_SEL);
+
+        if (periph == s->gdma_periph && (c->link & start)) {
+            *chan = i;
+            return true;
+        }
+    }
+    return esp_gdma_get_channel_periph(s->gdma, s->gdma_periph, dir, chan);
+}
+
+/* Fetch @len bytes to send from the GDMA OUT channel */
+static void esp32s3_gpspi_dma_tx(ESP32S3GpSpiState *s, uint8_t *tx,
+                                 uint32_t len)
+{
+    uint32_t chan;
+
+    if (!esp32s3_gpspi_dma_chan(s, ESP_GDMA_OUT_IDX, &chan) ||
+        !esp_gdma_read_channel(s->gdma, chan, tx, len)) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: no valid GDMA OUT channel for "
+                      "%u bytes\n", __func__, len);
+    }
+}
+
+/* Store @len received bytes through the GDMA IN channel */
+static void esp32s3_gpspi_dma_rx(ESP32S3GpSpiState *s, uint8_t *rx,
+                                 uint32_t len)
+{
+    uint32_t chan;
+
+    if (!esp32s3_gpspi_dma_chan(s, ESP_GDMA_IN_IDX, &chan) ||
+        !esp_gdma_write_channel(s->gdma, chan, rx, len)) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: no valid GDMA IN channel for "
+                      "%u bytes\n", __func__, len);
+    }
+}
+
 static void esp32s3_gpspi_data_phase(ESP32S3GpSpiState *s, uint32_t user,
                                      uint32_t len)
 {
+    uint32_t conf = esp32s3_gpspi_reg(s, A_SPI_DMA_CONF);
     uint32_t tx_off = FIELD_EX32(user, SPI_USER, MOSI_HIGHPART) ? 32 : 0;
     uint32_t rx_off = FIELD_EX32(user, SPI_USER, MISO_HIGHPART) ? 32 : 0;
     bool mosi = FIELD_EX32(user, SPI_USER, USR_MOSI);
     bool miso = FIELD_EX32(user, SPI_USER, USR_MISO);
     bool full_duplex = FIELD_EX32(user, SPI_USER, DOUTDIN);
-    uint8_t tx[ESP32S3_GPSPI_BUF_SIZE] = { 0 };
-    uint8_t rx[ESP32S3_GPSPI_BUF_SIZE];
+    bool dma_tx = mosi && FIELD_EX32(conf, SPI_DMA_CONF, DMA_TX_ENA);
+    bool dma_rx = miso && FIELD_EX32(conf, SPI_DMA_CONF, DMA_RX_ENA);
+    g_autofree uint8_t *tx = NULL;
+    g_autofree uint8_t *rx = NULL;
 
-    if (len > ESP32S3_GPSPI_BUF_SIZE) {
+    if (!dma_tx && !dma_rx && len > ESP32S3_GPSPI_BUF_SIZE) {
         qemu_log_mask(LOG_GUEST_ERROR, "%s: %u data bytes do not fit in "
                       "W0..W15 without DMA\n", __func__, len);
         len = ESP32S3_GPSPI_BUF_SIZE;
     }
-    for (uint32_t i = 0; i < len; i++) {
-        tx[i] = s->buf[(tx_off + i) % ESP32S3_GPSPI_BUF_SIZE];
+    tx = g_malloc0(len);
+    rx = g_malloc0(len);
+
+    if (dma_tx) {
+        esp32s3_gpspi_dma_tx(s, tx, len);
+    } else {
+        for (uint32_t i = 0; i < len; i++) {
+            tx[i] = s->buf[(tx_off + i) % ESP32S3_GPSPI_BUF_SIZE];
+        }
     }
 
     if (full_duplex) {
@@ -121,7 +188,9 @@ static void esp32s3_gpspi_data_phase(ESP32S3GpSpiState *s, uint32_t user,
         }
     }
 
-    if (miso) {
+    if (dma_rx) {
+        esp32s3_gpspi_dma_rx(s, rx, len);
+    } else if (miso) {
         for (uint32_t i = 0; i < len; i++) {
             s->buf[(rx_off + i) % ESP32S3_GPSPI_BUF_SIZE] = rx[i];
         }
@@ -306,6 +375,8 @@ static void esp32s3_gpspi_init(Object *obj)
 
 static Property esp32s3_gpspi_properties[] = {
     DEFINE_PROP_STRING("bus-name", ESP32S3GpSpiState, bus_name),
+    DEFINE_PROP_UINT32("gdma-periph", ESP32S3GpSpiState, gdma_periph,
+                       GDMA_SPI2),
     DEFINE_PROP_END_OF_LIST(),
 };
 

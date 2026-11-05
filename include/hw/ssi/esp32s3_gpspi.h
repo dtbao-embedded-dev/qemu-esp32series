@@ -11,6 +11,7 @@
 #include "hw/sysbus.h"
 #include "hw/ssi/ssi.h"
 #include "hw/registerfields.h"
+#include "hw/dma/esp_gdma.h"
 
 #define TYPE_ESP32S3_GPSPI "esp32s3.gpspi"
 #define ESP32S3_GPSPI(obj) \
@@ -91,6 +92,9 @@ typedef struct ESP32S3GpSpiState {
     qemu_irq irq;
     SSIBus *bus;
     char *bus_name;
+    /* GDMA controller (set by the machine) and this SPI's ID on it */
+    ESPGdmaState *gdma;
+    uint32_t gdma_periph;
 
     uint32_t regs[ESP32S3_GPSPI_REG_COUNT];
     uint8_t buf[ESP32S3_GPSPI_BUF_SIZE];

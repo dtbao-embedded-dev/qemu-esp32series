@@ -536,6 +536,8 @@ static void esp32s3_soc_realize(DeviceState *dev, Error **errp)
         char name[8];
         snprintf(name, sizeof(name), "spi%d", i + 2);
         qdev_prop_set_string(DEVICE(&s->gpspi[i]), "bus-name", name);
+        qdev_prop_set_uint32(DEVICE(&s->gpspi[i]), "gdma-periph",
+                             GDMA_SPI2 + i);
         sysbus_realize(SYS_BUS_DEVICE(&s->gpspi[i]), &error_fatal);
         esp32s3_soc_add_periph_device(sys_mem, &s->gpspi[i], gpspi_base[i]);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->gpspi[i]), 0,
@@ -925,6 +927,10 @@ static void esp32s3_machine_init(MachineState *machine)
                                         qdev_get_gpio_in(intmatrix_dev, ETS_DMA_IN_CH0_INTR_SOURCE + i));
             qdev_connect_gpio_out_named(DEVICE(&ss->gdma), ESP_GDMA_IRQ_OUT_NAME, i,
                                         qdev_get_gpio_in(intmatrix_dev, ETS_DMA_OUT_CH0_INTR_SOURCE + i));
+        }
+        /* GP-SPI2/SPI3 move their DMA-mode data through it */
+        for (int i = 0; i < ESP32S3_GPSPI_COUNT; i++) {
+            ss->gpspi[i].gdma = ESP_GDMA(&ss->gdma);
         }
    }
 
