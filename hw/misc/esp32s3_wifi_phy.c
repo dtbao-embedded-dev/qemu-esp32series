@@ -13,6 +13,18 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "hw/misc/esp32s3_wifi_phy.h"
+#include "esp32_wlan.h"
+
+/*
+ * Current WiFi channel, read by the access point emulation. The PHY code
+ * sets the RF frequency through ANA register 0x150, bits [27:20]; the
+ * decode is the one of lcgamboa's esp32c3_ana.c (0x0c -> channel 1).
+ */
+int esp32_wifi_channel;
+
+#define ANA_FREQ_REG        0x150
+#define ANA_FREQ_SHIFT      20
+#define ANA_MAX_CHANNEL     14
 
 /* Size of the TSENS window: a single register */
 #define TSENS_SIZE          4
@@ -75,6 +87,14 @@ static void esp32s3_wifi_phy_write(void *opaque, hwaddr addr, uint64_t value,
 
     if (addr < sizeof(b->mem)) {
         b->mem[addr / 4] = value;
+    }
+    if (b->id == ESP32S3_WIFI_PHY_ANA && addr == ANA_FREQ_REG) {
+        int freq = (value >> ANA_FREQ_SHIFT) & 0xff;
+        int channel = (freq - 7) / 5;
+
+        if (channel >= 1) {
+            esp32_wifi_channel = MIN(channel, ANA_MAX_CHANNEL);
+        }
     }
 }
 

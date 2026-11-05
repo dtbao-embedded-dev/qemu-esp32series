@@ -171,7 +171,9 @@ system_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files(
   'esp32s3_hmac.c',
   'esp32s3_ledc.c',
   'esp32s3_wifi.c',
-  'esp32s3_wifi_phy.c'
+  'esp32s3_wifi_phy.c',
+  'esp32_wifi_ap.c',
+  'esp32_wlan_packet.c'
 ))
 
 if gcrypt.found()
