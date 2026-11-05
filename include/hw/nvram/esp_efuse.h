@@ -213,6 +213,10 @@ typedef struct ESPEfuseState {
     /* Same efuses as the ones above, but protected blocks are not cleared.
      * This will be used by C3 emulated encryption modules */
     ESPEfuseRegs efuses_internal;
+
+    /* Factory MAC reported when the one in BLOCK1 is blank (not burned) */
+    bool has_default_mac;
+    uint8_t default_mac[6];
 } ESPEfuseState;
 
 typedef struct ESPEfuseClass {
@@ -223,6 +227,14 @@ typedef struct ESPEfuseClass {
     bool     (*get_key)(ESPEfuseState *s, EfuseBlocksIdx efuse_block_num, uint8_t* efuse_key);
     uint32_t (*get_key_purpose)(ESPEfuseState *s, EfuseBlocksIdx efuse_block_num);
 } ESPEfuseClass;
+
+/**
+ * @brief Report @mac as the factory MAC address whenever the MAC field of
+ * BLOCK1 is blank. Only the in-memory copy is patched, never the eFuse
+ * image file, and a burned MAC is left as it is. Call before realize or at
+ * any time after; it applies from the next eFuse load.
+ */
+void esp_efuse_set_default_mac(ESPEfuseState *s, const uint8_t mac[6]);
 
 
 /* Fields for the blocks, only define the necessary ones */
