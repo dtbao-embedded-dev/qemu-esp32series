@@ -1,0 +1,6 @@
+# ESP-IDF test app for the OpenCores Ethernet NIC of the QEMU ESP32-S3 machine.
+# Run QEMU with -nic user,model=open_eth (or a plain -nic user).
+cmake_minimum_required(VERSION 3.16)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(openeth_s3)
