@@ -24,7 +24,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | W0  | Decide WiFi direction (see Phase 3)                           | done   | A: port lcgamboa WiFi |
 | W1  | Short-term networking: `open_eth` (B) or firmware shim (C)    | dropped | A chosen instead |
 | W2  | Spike (1-2 days): map lcgamboa `esp32c3_wifi` onto S3         | done   | GO, see `docs/wifi-s3-spike.md` |
-| W3  | Port WiFi emulation to S3 (only if W2 says go)                | todo   |               |
+| W3  | Port WiFi emulation to S3 (only if W2 says go)                | wip    | start OK; scan, connect next |
 
 ### Log
 
@@ -56,6 +56,11 @@ Append one line per working session: date, step IDs touched, outcome.
   `esp_wifi_start()` returns and a scan completes on `-M esp32s3`. The PHY
   stubs match lcgamboa's C3 models and the MAC uses the C3 layout at
   0x60033000. Details in `docs/wifi-s3-spike.md`.
+- 2026-11-05: W3 started. New `esp32s3_wifi` NIC model (MAC register file)
+  and `esp32s3.wifi_phy` stubs, created only with
+  `-nic ...,model=esp32s3_wifi`: `wifi_s3` reaches `start OK` and a scan
+  completes with no APs yet. `open_eth` and the default NIC are unchanged;
+  both NICs together exit with an error. I2C and LEDC tests still pass.
 
 ### Open decisions
 
