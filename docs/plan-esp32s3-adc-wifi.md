@@ -16,7 +16,7 @@ Status values: `todo`, `wip`, `done`, `blocked`, `dropped`.
 | Step | What | Status | Notes |
 |---|---|---|---|
 | W4 | Outbound TCP and UDP from the firmware to the host | done | no QEMU change needed |
-| W5 | Non-zero station MAC when the eFuse MAC is blank | todo | |
+| W5 | Non-zero station MAC when the eFuse MAC is blank | done | `esp_efuse_set_default_mac` |
 | A1 | `esp32s3.sens` model: RTC ADC oneshot + TSENS | todo | |
 | A2 | Per-channel input values (properties, `qom-set`) | todo | |
 | A4 | `tests/esp-idf/adc_s3` + IDF `adc/oneshot_read` | todo | |
@@ -34,6 +34,9 @@ Append one line per working session: date, step IDs touched, outcome.
 - 2026-11-05: W4 done. `wifi_s3` now sends TCP and UDP to
   `host_echo.py` through 10.0.2.2:5555 and gets both echoes back; the
   existing WiFi model already handled it.
+- 2026-11-05: W5 done. With the WiFi NIC a blank eFuse MAC reads as the
+  NIC MAC: `wifi:mode : sta (52:54:00:12:34:56)`, and `mac=` overrides it.
+  `open_eth` output is unchanged; I2C and LEDC tests still pass.
 
 ## Constraints the request did not mention
 

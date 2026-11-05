@@ -57,8 +57,9 @@ does not model yet.
 - The PHY stubs and the MAC layout come from `docs/wifi-s3-spike.md`. They
   are verified with ESP-IDF v6.1 only; the closed WiFi/PHY libraries change
   per release and may poll other registers.
-- The station MAC is 00:00:00:00:00:00 unless the eFuse image has one; the
-  model takes it from the MAC address register the firmware programs.
+- With the WiFi NIC, a blank eFuse MAC reads as the NIC MAC
+  (`-nic ...,mac=`, default 52:54:00:12:34:56); only the in-memory eFuse is
+  patched, never the image file, and a burned MAC wins.
 - Original-ESP32 models are the usual porting base, but check the S3
   register layout in ESP-IDF (`components/soc/esp32s3`,
   `components/hal/esp32s3`) first; offsets and opcodes often differ.
