@@ -2,8 +2,8 @@
  * WiFi station test for the QEMU ESP32-S3 machine.
  *
  * Steps: init -> start -> scan -> connect to the open AP "Espressif" ->
- * get an IP -> TCP and UDP echo with the host -> serve one HTTP request on
- * port 80. Each step has a timeout,
+ * get an IP -> TCP and UDP echo with the host -> read ADC2 while WiFi runs
+ * -> serve one HTTP request on port 80. Each step has a timeout,
  * so a missing piece of the emulation shows up as a FAIL line instead of
  * a hang. Every result line starts with "WIFI_TEST"; the last one is
  * "WIFI_TEST RESULT PASS" or "WIFI_TEST RESULT FAIL".
@@ -11,7 +11,8 @@
  * Run QEMU with -nic user,model=esp32s3_wifi,hostfwd=tcp:127.0.0.1:8080-:80,
  * run host_echo.py on the host (TCP and UDP echo on 127.0.0.1:5555, which
  * the guest reaches as 10.0.2.2), and fetch http://127.0.0.1:8080/ once
- * "http ready" shows.
+ * "http ready" shows. ADC2 channel 1 must be set to 1234:
+ *   -global driver=esp32s3.sens,property=adc2-ch1,value=1234
  */
 
 #include <inttypes.h>
@@ -19,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_adc/adc_oneshot.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_mac.h"
@@ -44,6 +46,8 @@
 #define ECHO_TIMEOUT_MS     5000
 #define TCP_MSG             "WIFI_S3_TCP"
 #define UDP_MSG             "WIFI_S3_UDP"
+#define ADC2_CHANNEL        ADC_CHANNEL_1
+#define ADC2_EXPECTED       1234
 #define MAX_APS             16
 
 #define BIT_STARTED         BIT0
@@ -256,6 +260,33 @@ static bool step_echo(int type, const char *name, const char *msg)
     return ok;
 }
 
+/* ADC2 shares the SAR with WiFi through an arbiter; it must still read */
+static bool step_adc2(void)
+{
+    const adc_oneshot_unit_init_cfg_t unit_cfg = { .unit_id = ADC_UNIT_2 };
+    const adc_oneshot_chan_cfg_t chan_cfg = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    adc_oneshot_unit_handle_t adc = NULL;
+    int raw = -1;
+    esp_err_t err = adc_oneshot_new_unit(&unit_cfg, &adc);
+
+    if (err == ESP_OK) {
+        err = adc_oneshot_config_channel(adc, ADC2_CHANNEL, &chan_cfg);
+    }
+    if (err == ESP_OK) {
+        err = adc_oneshot_read(adc, ADC2_CHANNEL, &raw);
+    }
+    if (adc) {
+        adc_oneshot_del_unit(adc);
+    }
+    bool ok = err == ESP_OK && raw == ADC2_EXPECTED;
+    printf("WIFI_TEST adc2 with wifi raw=%d %s\n", raw,
+           ok ? "OK" : esp_err_to_name(err == ESP_OK ? ESP_FAIL : err));
+    return ok;
+}
+
 static bool step_http(void)
 {
     httpd_handle_t server = NULL;
@@ -288,7 +319,8 @@ void app_main(void)
     printf("WIFI_TEST START\n");
     pass = step_init() && step_mac() && step_start() && step_scan() && step_connect() &&
            step_echo(SOCK_STREAM, "tcp out", TCP_MSG) &&
-           step_echo(SOCK_DGRAM, "udp out", UDP_MSG) && step_http();
+           step_echo(SOCK_DGRAM, "udp out", UDP_MSG) && step_adc2() &&
+           step_http();
     printf("WIFI_TEST RESULT %s\n", pass ? "PASS" : "FAIL");
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(100));
