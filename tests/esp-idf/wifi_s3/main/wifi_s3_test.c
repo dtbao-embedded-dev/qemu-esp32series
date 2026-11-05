@@ -134,11 +134,21 @@ static bool step_start(void)
     return report("start", err, err == ESP_OK && wait_bit(BIT_STARTED, START_TIMEOUT_MS));
 }
 
+/* The access points the QEMU emulation announces, with their channels */
+static const struct {
+    const char *ssid;
+    uint8_t channel;
+} s_expected_aps[] = {
+    { "PICSimLabWifi", 1 },
+    { TEST_SSID, 5 },
+    { "MasseyWifi", 10 },
+};
+
 static bool step_scan(void)
 {
     static wifi_ap_record_t aps[MAX_APS];
     uint16_t count = MAX_APS;
-    bool found = false;
+    size_t found = 0;
     esp_err_t err = esp_wifi_scan_start(NULL, false);
 
     if (err != ESP_OK || !wait_bit(BIT_SCAN_DONE, SCAN_TIMEOUT_MS)) {
@@ -149,10 +159,18 @@ static bool step_scan(void)
         printf("WIFI_TEST scan ap ssid=%s ch=%d rssi=%d auth=%d\n",
                (const char *)aps[i].ssid, aps[i].primary, aps[i].rssi,
                aps[i].authmode);
-        found |= strcmp((const char *)aps[i].ssid, TEST_SSID) == 0;
+        for (size_t j = 0; j < sizeof(s_expected_aps) / sizeof(s_expected_aps[0]); j++) {
+            if (strcmp((const char *)aps[i].ssid, s_expected_aps[j].ssid) == 0 &&
+                aps[i].primary == s_expected_aps[j].channel) {
+                found++;
+            }
+        }
     }
-    printf("WIFI_TEST scan count=%u\n", count);
-    return report("scan", err, err == ESP_OK && found);
+    bool ok = err == ESP_OK &&
+              found == sizeof(s_expected_aps) / sizeof(s_expected_aps[0]);
+    printf("WIFI_TEST scan count=%u expected found=%u %s\n", count,
+           (unsigned)found, ok ? "OK" : (err != ESP_OK ? esp_err_to_name(err) : "NOT_FOUND"));
+    return ok;
 }
 
 static bool step_connect(void)
