@@ -93,6 +93,28 @@ does not model yet.
 - Not modelled: IO_MUX and the GPIO matrix routing (FUNCn_IN_SEL/OUT_SEL only
   keep their value), pull-ups/downs, open drain, RTC IO.
 
+## GP-SPI2/SPI3 on the S3 machine
+
+- `hw/ssi/esp32s3_gpspi.c` models the GP-SPI master user transaction
+  (command, address, dummy, MOSI/MISO data, full or half duplex) with data in
+  W0..W15; `SPI_CMD.USR` and `UPDATE` complete at once and set `trans_done`
+  in `SPI_DMA_INT_RAW`, which drives `ETS_SPI2/3_INTR_SOURCE`.
+- DMA mode (`SPI_DMA_CH_AUTO`): with `DMA_TX_ENA`/`DMA_RX_ENA` set, the data
+  phase reads from / writes to the GDMA OUT/IN channel whose PERI_SEL is the
+  SPI's GDMA ID (SPI2 = 0, SPI3 = 1) and whose link was started; transfers
+  are not limited to 64 bytes.
+- The SSI buses are named `spi2` and `spi3`; attach QEMU SSI devices with
+  `-device w25x16,bus=spi2,cs=0` (`cs` = the CSn line, i.e. the slot the IDF
+  driver gives the device: the first `spi_bus_add_device` is CS0). A device
+  without a drive gets blank (0xFF) storage.
+- Every phase moves whole bytes on one data line, except the dummy phase:
+  one transfer per dummy cycle, the convention the m25p80 flash model uses.
+  Not modelled: dual/quad/octal lines, CS polarity, clock timing, slave mode.
+- The interrupt matrix (`hw/xtensa/esp32s3_intc.c`) re-applies a source's
+  current level when its routing changes: ESP-IDF disables a non-shared
+  interrupt by routing it to a reserved CPU interrupt and back, and the SPI
+  driver relies on `trans_done` staying high while it is disabled.
+
 ## Build and run
 
 Verified on this Windows machine with MSYS2 MINGW64, out of tree in
@@ -152,6 +174,9 @@ waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
 to send `qom-set /machine/soc/gpio in 4398046511168` after `GPIO_TEST ready`
 and `qom-set /machine/soc/gpio in 4398046513216` after `GPIO_TEST irq ready`;
 it prints `GPIO_TEST RESULT PASS`.
+`tests/esp-idf/spi_s3` needs
+`-device w25x16,bus=spi2,cs=0 -device w25x16,bus=spi3,cs=1` and prints
+`SPI_TEST RESULT PASS`.
 `tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
 once DHCP succeeds.
