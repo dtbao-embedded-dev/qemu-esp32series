@@ -99,6 +99,10 @@ does not model yet.
   (command, address, dummy, MOSI/MISO data, full or half duplex) with data in
   W0..W15; `SPI_CMD.USR` and `UPDATE` complete at once and set `trans_done`
   in `SPI_DMA_INT_RAW`, which drives `ETS_SPI2/3_INTR_SOURCE`.
+- DMA mode (`SPI_DMA_CH_AUTO`): with `DMA_TX_ENA`/`DMA_RX_ENA` set, the data
+  phase reads from / writes to the GDMA OUT/IN channel whose PERI_SEL is the
+  SPI's GDMA ID (SPI2 = 0, SPI3 = 1) and whose link was started; transfers
+  are not limited to 64 bytes.
 - The SSI buses are named `spi2` and `spi3`; attach QEMU SSI devices with
   `-device w25x16,bus=spi2,cs=0` (`cs` = the CSn line, i.e. the slot the IDF
   driver gives the device: the first `spi_bus_add_device` is CS0). A device
