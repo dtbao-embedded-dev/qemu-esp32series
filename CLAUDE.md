@@ -85,6 +85,11 @@ does not model yet.
   `-global driver=esp32s3.gpio,property=in,value=<decimal mask>` at boot, or
   `qom-set /machine/soc/gpio in <mask>` from the monitor. Other QEMU devices
   can drive the 49 qdev input lines named `pin`.
+- Interrupts: GPIO_PINn.INT_TYPE (pos/neg/any edge, low/high level) sets
+  STATUS; pins with the CPU bit of INT_ENA show in PCPU_INT/PCPU_INT1 (what
+  the IDF ISR reads) and raise `ETS_GPIO_INTR_SOURCE`. A level type sets its
+  STATUS bit again after a W1TC while the level holds. The NMI and SDIO
+  sources are not wired.
 - Not modelled: IO_MUX and the GPIO matrix routing (FUNCn_IN_SEL/OUT_SEL only
   keep their value), pull-ups/downs, open drain, RTC IO.
 
@@ -144,7 +149,8 @@ waits for after `ADC_TEST ready`; it prints `ADC_TEST RESULT PASS`.
 `SOFTAP_TEST RESULT PASS`.
 `tests/esp-idf/gpio_s3` needs
 `-global driver=esp32s3.gpio,property=in,value=2199023255584` and a monitor
-to send `qom-set /machine/soc/gpio in 4398046511168` after `GPIO_TEST ready`;
+to send `qom-set /machine/soc/gpio in 4398046511168` after `GPIO_TEST ready`
+and `qom-set /machine/soc/gpio in 4398046513216` after `GPIO_TEST irq ready`;
 it prints `GPIO_TEST RESULT PASS`.
 `tests/esp-idf/openeth_s3` needs
 `-nic user` (or `model=open_eth`) and prints `OPENETH_TEST RESULT PASS`
