@@ -39,7 +39,21 @@ REG32(GPIO_ENABLE1_W1TC,    0x0034)
 REG32(GPIO_STRAP,           0x0038)
 REG32(GPIO_IN,              0x003C)
 REG32(GPIO_IN1,             0x0040)
+REG32(GPIO_STATUS,          0x0044)
+REG32(GPIO_STATUS_W1TS,     0x0048)
+REG32(GPIO_STATUS_W1TC,     0x004C)
+REG32(GPIO_STATUS1,         0x0050)
+REG32(GPIO_STATUS1_W1TS,    0x0054)
+REG32(GPIO_STATUS1_W1TC,    0x0058)
+REG32(GPIO_PCPU_INT,        0x005C)
+REG32(GPIO_PCPU_NMI_INT,    0x0060)
+REG32(GPIO_CPUSDIO_INT,     0x0064)
+REG32(GPIO_PCPU_INT1,       0x0068)
+REG32(GPIO_PCPU_NMI_INT1,   0x006C)
+REG32(GPIO_CPUSDIO_INT1,    0x0070)
 REG32(GPIO_PIN0,            0x0074)
+    FIELD(GPIO_PIN0, INT_TYPE, 7, 3)
+    FIELD(GPIO_PIN0, INT_ENA, 13, 5)
 REG32(GPIO_FUNC0_IN_SEL,    0x0154)
 REG32(GPIO_FUNC0_OUT_SEL,   0x0554)
 REG32(GPIO_CLOCK_GATE,      0x062C)
@@ -54,6 +68,18 @@ REG32(GPIO_DATE,            0x06FC)
 #define ESP32S3_GPIO_CLOCK_GATE_DEFAULT     0x1
 #define ESP32S3_GPIO_DATE_VALUE             0x1907040
 
+/* GPIO_PINn.INT_TYPE values */
+#define ESP32S3_GPIO_INT_POSEDGE    1
+#define ESP32S3_GPIO_INT_NEGEDGE    2
+#define ESP32S3_GPIO_INT_ANYEDGE    3
+#define ESP32S3_GPIO_INT_LOW_LEVEL  4
+#define ESP32S3_GPIO_INT_HIGH_LEVEL 5
+
+/* GPIO_PINn.INT_ENA bits: CPU interrupt, CPU NMI, SDIO extend interrupt */
+#define ESP32S3_GPIO_INT_ENA_CPU    BIT(0)
+#define ESP32S3_GPIO_INT_ENA_NMI    BIT(1)
+#define ESP32S3_GPIO_INT_ENA_SDIO   BIT(4)
+
 typedef struct ESP32S3GPIOState {
     SysBusDevice parent_obj;
 
@@ -66,6 +92,10 @@ typedef struct ESP32S3GPIOState {
     uint32_t enable[2];
     /* Pad levels driven from outside QEMU's CPU (property "in", "pin" lines) */
     uint64_t ext;
+    /* Pad levels at the last update, to detect edges */
+    uint64_t level;
+    /* Interrupt status, bank 0 and bank 1 */
+    uint32_t status[2];
 
     uint32_t bt_select;
     uint32_t sdio_select;

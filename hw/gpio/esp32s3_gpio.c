@@ -11,7 +11,9 @@
  * output is enabled reads back its own output level (as a real pad with
  * the input buffer enabled); any other pad reads the level driven from
  * outside, set through the "in" property (bit n = GPIOn) or the "pin"
- * qdev input lines. IO_MUX and the GPIO matrix routing are not modelled:
+ * qdev input lines. GPIO_PINn.INT_TYPE edges and levels set STATUS; the
+ * pins with the CPU bit of INT_ENA raise the sysbus IRQ (the PRO/APP CPU
+ * GPIO interrupt source). IO_MUX and the GPIO matrix routing are not modelled:
  * FUNCn_IN_SEL/FUNCn_OUT_SEL only keep the value written to them.
  */
 
@@ -42,9 +44,77 @@ static uint64_t esp32s3_gpio_levels(ESP32S3GPIOState *s)
     return ((out & enable) | (s->ext & ~enable)) & ESP32S3_GPIO_PIN_MASK;
 }
 
-/* Called after anything that can change a pad level */
+static uint64_t esp32s3_gpio_status(ESP32S3GPIOState *s)
+{
+    return s->status[0] | ((uint64_t)s->status[1] << 32);
+}
+
+/* Pins whose GPIO_PINn.INT_ENA has one of the bits in @ena, bit n = GPIOn */
+static uint64_t esp32s3_gpio_int_enabled(ESP32S3GPIOState *s, uint32_t ena)
+{
+    uint64_t mask = 0;
+
+    for (int i = 0; i < ESP32S3_GPIO_PIN_COUNT; i++) {
+        if (FIELD_EX32(s->pin[i], GPIO_PIN0, INT_ENA) & ena) {
+            mask |= 1ULL << i;
+        }
+    }
+    return mask;
+}
+
+/* PCPU_INT, PCPU_NMI_INT, CPUSDIO_INT (bank 0) or their bank 1 variant */
+static uint32_t esp32s3_gpio_int_reg(ESP32S3GPIOState *s, uint32_t ena,
+                                     int bank)
+{
+    uint64_t v = esp32s3_gpio_status(s) & esp32s3_gpio_int_enabled(s, ena);
+
+    return bank ? v >> 32 : (uint32_t)v;
+}
+
+/*
+ * Called after anything that can change a pad level, an interrupt type or
+ * the interrupt status: latches the edges and levels selected by INT_TYPE
+ * into STATUS (a level keeps re-asserting its bit after a W1TC while it
+ * holds) and drives the CPU interrupt line.
+ */
 static void esp32s3_gpio_update(ESP32S3GPIOState *s)
 {
+    uint64_t level = esp32s3_gpio_levels(s);
+    uint64_t rise = level & ~s->level;
+    uint64_t fall = ~level & s->level;
+    uint64_t trig = 0;
+    bool pending;
+
+    for (int i = 0; i < ESP32S3_GPIO_PIN_COUNT; i++) {
+        uint64_t bit = 1ULL << i;
+
+        switch (FIELD_EX32(s->pin[i], GPIO_PIN0, INT_TYPE)) {
+        case ESP32S3_GPIO_INT_POSEDGE:
+            trig |= rise & bit;
+            break;
+        case ESP32S3_GPIO_INT_NEGEDGE:
+            trig |= fall & bit;
+            break;
+        case ESP32S3_GPIO_INT_ANYEDGE:
+            trig |= (rise | fall) & bit;
+            break;
+        case ESP32S3_GPIO_INT_LOW_LEVEL:
+            trig |= ~level & bit;
+            break;
+        case ESP32S3_GPIO_INT_HIGH_LEVEL:
+            trig |= level & bit;
+            break;
+        default:
+            break;
+        }
+    }
+    s->level = level;
+    s->status[0] |= (uint32_t)trig;
+    s->status[1] |= trig >> 32;
+
+    pending = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_CPU, 0) ||
+              esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_CPU, 1);
+    qemu_set_irq(s->irq, pending);
 }
 
 static uint64_t esp32s3_gpio_read(void *opaque, hwaddr addr, unsigned int size)
@@ -79,6 +149,30 @@ static uint64_t esp32s3_gpio_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case A_GPIO_IN1:
         r = esp32s3_gpio_levels(s) >> 32;
+        break;
+    case A_GPIO_STATUS:
+        r = s->status[0];
+        break;
+    case A_GPIO_STATUS1:
+        r = s->status[1];
+        break;
+    case A_GPIO_PCPU_INT:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_CPU, 0);
+        break;
+    case A_GPIO_PCPU_NMI_INT:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_NMI, 0);
+        break;
+    case A_GPIO_CPUSDIO_INT:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_SDIO, 0);
+        break;
+    case A_GPIO_PCPU_INT1:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_CPU, 1);
+        break;
+    case A_GPIO_PCPU_NMI_INT1:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_NMI, 1);
+        break;
+    case A_GPIO_CPUSDIO_INT1:
+        r = esp32s3_gpio_int_reg(s, ESP32S3_GPIO_INT_ENA_SDIO, 1);
         break;
     case A_GPIO_PIN0 ... ESP32S3_GPIO_PIN_END:
         r = s->pin[(addr - A_GPIO_PIN0) / 4];
@@ -152,6 +246,24 @@ static void esp32s3_gpio_write(void *opaque, hwaddr addr,
     case A_GPIO_ENABLE1_W1TC:
         s->enable[1] &= ~v;
         break;
+    case A_GPIO_STATUS:
+        s->status[0] = v;
+        break;
+    case A_GPIO_STATUS_W1TS:
+        s->status[0] |= v;
+        break;
+    case A_GPIO_STATUS_W1TC:
+        s->status[0] &= ~v;
+        break;
+    case A_GPIO_STATUS1:
+        s->status[1] = v & ESP32S3_GPIO_BANK1_MASK;
+        break;
+    case A_GPIO_STATUS1_W1TS:
+        s->status[1] |= v & ESP32S3_GPIO_BANK1_MASK;
+        break;
+    case A_GPIO_STATUS1_W1TC:
+        s->status[1] &= ~v;
+        break;
     case A_GPIO_PIN0 ... ESP32S3_GPIO_PIN_END:
         s->pin[(addr - A_GPIO_PIN0) / 4] = v;
         break;
@@ -221,6 +333,7 @@ static void esp32s3_gpio_reset_hold(Object *obj, ResetType type)
     /* The externally driven levels (s->ext) belong to the board, keep them */
     memset(s->out, 0, sizeof(s->out));
     memset(s->enable, 0, sizeof(s->enable));
+    memset(s->status, 0, sizeof(s->status));
     s->bt_select = 0;
     s->sdio_select = 0;
     memset(s->pin, 0, sizeof(s->pin));
